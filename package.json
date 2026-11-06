@@ -4,7 +4,21 @@
   "description": "IntelliJ-style interface / implementation / override navigation ('1 implementation', '↑ Interface' hints) in Java and Kotlin. Works on top of any language server (e.g. JetBrains' 'Java and Kotlin by IntelliJ IDEA').",
   "version": "0.6.0",
   "publisher": "bits-gmbh",
+  "author": "Andreas Huth",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andreashuthe/intellij-java-kotlin-navigation.git"
+  },
+  "bugs": {
+    "url": "https://github.com/andreashuthe/intellij-java-kotlin-navigation/issues"
+  },
+  "homepage": "https://github.com/andreashuthe/intellij-java-kotlin-navigation#readme",
+  "galleryBanner": {
+    "color": "#1E1F22",
+    "theme": "dark"
+  },
+  "pricing": "Free",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -18,7 +32,11 @@
     "kotlin",
     "implementation",
     "override",
-    "navigation"
+    "navigation",
+    "code vision",
+    "inlay hints",
+    "go to implementation",
+    "spring"
   ],
   "icon": "media/logo.png",
   "activationEvents": [
@@ -103,7 +121,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && node --test test/*.test.js",
-    "test:integration": "npm run compile && node integration-test/runTest.js"
+    "test:integration": "npm run compile && node integration-test/runTest.js",
+    "package": "vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

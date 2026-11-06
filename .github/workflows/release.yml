@@ -1,0 +1,149 @@
+name: Release
+
+# Two ways to release:
+#  1. Actions → "Release" → Run workflow: bumps the version (patch/minor/major or an explicit one),
+#     updates CHANGELOG.md, builds + tests, commits, tags vX.Y.Z, creates the GitHub release with the .vsix
+#     and publishes to the VS Code Marketplace / Open VSX (if enabled, see RELEASING.md).
+#  2. Push a tag vX.Y.Z yourself (package.json must already contain X.Y.Z): same, without the bump/commit.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      version:
+        description: Explicit version instead of the bump (e.g. 1.0.0) – optional
+        type: string
+        required: false
+      publish:
+        description: Publish to VS Code Marketplace / Open VSX (if enabled via repository variables)
+        type: boolean
+        default: true
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+permissions:
+  contents: write   # push the version commit + tag, create the GitHub release
+  id-token: write   # OIDC "trusted publishing" to the VS Code Marketplace / Open VSX (no tokens needed)
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Repository variables (Settings → Secrets and variables → Actions → Variables) switch publishing on:
+      PUBLISH_MARKETPLACE: ${{ vars.PUBLISH_MARKETPLACE }}
+      PUBLISH_OPENVSX: ${{ vars.PUBLISH_OPENVSX }}
+      # Only needed for the very first Open VSX upload (trusted publishing requires an existing version)
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Determine version
+        id: version
+        env:
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            v="${GITHUB_REF_NAME#v}"
+            pkg="$(node -p "require('./package.json').version")"
+            if [ "$v" != "$pkg" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $pkg"
+              exit 1
+            fi
+          else
+            if [ -n "$INPUT_VERSION" ]; then
+              if ! [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "::error::'$INPUT_VERSION' is not a valid version (x.y.z)"
+                exit 1
+              fi
+              npm version "$INPUT_VERSION" --no-git-tag-version
+            else
+              npm version "$INPUT_BUMP" --no-git-tag-version
+            fi
+            v="$(node -p "require('./package.json').version")"
+            if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+              echo "::error::Tag v$v already exists"
+              exit 1
+            fi
+            node scripts/changelog.js release "$v"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "vsix=intellij-java-kotlin-navigation-$v.vsix" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$v" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Release notes
+        run: node scripts/changelog.js notes "${{ steps.version.outputs.version }}" release-notes.md
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Integration tests
+        run: |
+          command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
+          xvfb-run -a npm run test:integration
+
+      - name: Package .vsix
+        run: npx vsce package --out "${{ steps.version.outputs.vsix }}"
+
+      - name: Commit version bump and tag
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          V: ${{ steps.version.outputs.version }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json CHANGELOG.md
+          git commit -m "chore(release): v$V"
+          git tag -a "v$V" -m "v$V"
+          git push --atomic origin "HEAD:refs/heads/$BRANCH" "refs/tags/v$V"
+
+      - name: GitHub release
+        env:
+          V: ${{ steps.version.outputs.version }}
+          VSIX: ${{ steps.version.outputs.vsix }}
+        run: gh release create "v$V" "$VSIX" --title "v$V" --notes-file release-notes.md --verify-tag
+
+      - name: Publish to VS Code Marketplace (trusted publishing)
+        if: env.PUBLISH_MARKETPLACE == 'true' && (github.event_name == 'push' || inputs.publish)
+        run: npx vsce publish --oidc --packagePath "${{ steps.version.outputs.vsix }}"
+
+      - name: Publish to Open VSX (Cursor, Windsurf, VSCodium, …)
+        if: env.PUBLISH_OPENVSX == 'true' && (github.event_name == 'push' || inputs.publish)
+        env:
+          VSIX: ${{ steps.version.outputs.vsix }}
+        run: |
+          if [ -n "$OVSX_PAT" ]; then
+            npx --yes ovsx publish "$VSIX" --pat "$OVSX_PAT"
+          else
+            npx --yes ovsx publish "$VSIX" --trusted-publishing
+          fi
+
+      - name: Upload .vsix
+        uses: actions/upload-artifact@v7
+        with:
+          name: vsix
+          path: ${{ steps.version.outputs.vsix }}

@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    ignore:
+      # Must match engines.vscode in package.json (vsce refuses newer typings)
+      - dependency-name: "@types/vscode"
+    groups:
+      dev-dependencies:
+        dependency-type: development
