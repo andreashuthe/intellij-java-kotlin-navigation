@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2B2D30"/>
+      <stop offset="1" stop-color="#17181A"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF8A3D"/>
+      <stop offset="1" stop-color="#E8467C"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="none" stroke="#3C3F44" stroke-width="2"/>
+  <!-- connectors -->
+  <g fill="none" stroke="#7A7E85" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M128 98 V128 M128 128 H74 V150 M128 128 H182 V150"/>
+  </g>
+  <!-- interface node -->
+  <circle cx="128" cy="70" r="34" fill="url(#accent)"/>
+  <text x="128" y="85" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace" font-weight="700" font-size="44" fill="#FFFFFF">I</text>
+  <!-- implementation nodes -->
+  <rect x="44" y="150" width="60" height="60" rx="16" fill="#3D8BFD"/>
+  <text x="74" y="194" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace" font-weight="700" font-size="38" fill="#FFFFFF">C</text>
+  <rect x="152" y="150" width="60" height="60" rx="16" fill="#7F52FF"/>
+  <text x="182" y="194" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace" font-weight="700" font-size="38" fill="#FFFFFF">K</text>
+  <!-- navigation arrow -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M206 64 V112 M192 98 L206 112 L220 98"/>
+  </g>
+</svg>
