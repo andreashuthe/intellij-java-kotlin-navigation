@@ -31,7 +31,7 @@ then skips the bump/commit and only builds, releases and publishes.
 Global Azure DevOps PATs are retired on **2026-12-01**, so the workflow publishes with
 [Marketplace Trusted Publishing](https://code.visualstudio.com/api/working-with-extensions/publishing-extension) (GitHub OIDC):
 
-1. Sign in at <https://marketplace.visualstudio.com/manage> and create the publisher **`bits-gmbh`**
+1. Sign in at <https://marketplace.visualstudio.com/manage> and create the publisher **`andreashuthe`**
    (or change `"publisher"` in `package.json` to your existing publisher ID).
 2. Open the publisher → **Trusted Publishing** → **Create** with
    - Repository owner: `andreashuthe`
@@ -43,7 +43,7 @@ Global Azure DevOps PATs are retired on **2026-12-01**, so the workflow publishe
 ### 3. Open VSX (Cursor, Windsurf, VSCodium, Gitpod, …)
 
 1. Sign in at <https://open-vsx.org> with GitHub, sign the publisher agreement, create an access token.
-2. Create the namespace once: `npx ovsx create-namespace bits-gmbh -p <token>`.
+2. Create the namespace once: `npx ovsx create-namespace andreashuthe -p <token>`.
 3. In GitHub add the **secret** `OVSX_PAT` = `<token>` and the **variable** `PUBLISH_OPENVSX` = `true`.
 4. After the first successful release you can switch to token-less publishing: open-vsx.org →
    *Settings → Trusted Publishers* → add `andreashuthe/intellij-java-kotlin-navigation`, workflow `release.yml`

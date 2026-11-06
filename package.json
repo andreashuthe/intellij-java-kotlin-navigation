@@ -3,7 +3,7 @@
   "displayName": "IntelliJ Java/Kotlin Navigation",
   "description": "IntelliJ-style interface / implementation / override navigation ('1 implementation', '↑ Interface' hints) in Java and Kotlin. Works on top of any language server (e.g. JetBrains' 'Java and Kotlin by IntelliJ IDEA').",
   "version": "0.6.0",
-  "publisher": "bits-gmbh",
+  "publisher": "andreashuthe",
   "author": "Andreas Huth",
   "license": "MIT",
   "repository": {
