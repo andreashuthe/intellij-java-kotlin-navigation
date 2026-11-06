@@ -1,0 +1,115 @@
+{
+  "name": "intellij-java-kotlin-navigation",
+  "displayName": "IntelliJ Java/Kotlin Navigation",
+  "description": "IntelliJ-style interface / implementation / override navigation ('1 implementation', '↑ Interface' hints) in Java and Kotlin. Works on top of any language server (e.g. JetBrains' 'Java and Kotlin by IntelliJ IDEA').",
+  "version": "0.6.0",
+  "publisher": "bits-gmbh",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "intellij",
+    "java",
+    "kotlin",
+    "implementation",
+    "override",
+    "navigation"
+  ],
+  "icon": "media/logo.png",
+  "activationEvents": [
+    "onLanguage:java",
+    "onLanguage:kotlin"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "intellijNav.goToImplementations",
+        "title": "Go to Implementation(s) / Overriding Members",
+        "category": "IntelliJ Nav"
+      },
+      {
+        "command": "intellijNav.goToSuper",
+        "title": "Go to Super Method / Interface",
+        "category": "IntelliJ Nav"
+      },
+      {
+        "command": "intellijNav.refresh",
+        "title": "Refresh Navigation Hints",
+        "category": "IntelliJ Nav"
+      }
+    ],
+    "configuration": {
+      "title": "IntelliJ Java/Kotlin Navigation",
+      "properties": {
+        "intellijNav.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable IntelliJ-style inheritance navigation (hints, hover, commands)."
+        },
+        "intellijNav.languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "java",
+            "kotlin"
+          ],
+          "description": "Language IDs for which navigation hints are computed."
+        },
+        "intellijNav.inlayHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show clickable IntelliJ-style hints at the end of declarations, e.g. '1 implementation' or '↑ EntityRepository'. Cmd/Ctrl+Click to navigate."
+        },
+        "intellijNav.codeLens": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the same links as CodeLens above each declaration (plain click, but takes an extra line)."
+        },
+        "intellijNav.clickLineNumber": {
+          "type": "boolean",
+          "default": false,
+          "description": "Clicking the line number of a declaration with implementations/super methods navigates there (instead of selecting the line)."
+        },
+        "intellijNav.showOnTypes": {
+          "type": "boolean",
+          "default": true,
+          "description": "Also show icons on class/interface declarations (implemented by / implements)."
+        },
+        "intellijNav.refreshDelay": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 100,
+          "description": "Delay in ms after an edit before the icons are recomputed."
+        },
+        "intellijNav.maxConcurrentRequests": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "description": "Maximum number of parallel language-server requests per file."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node --test test/*.test.js",
+    "test:integration": "npm run compile && node integration-test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "~1.85.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.1.0",
+    "typescript": "^7.0.2"
+  }
+}

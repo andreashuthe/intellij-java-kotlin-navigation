@@ -1,0 +1,3 @@
+{ "name": "mock-java-lsp", "publisher": "test", "version": "0.0.1", "engines": { "vscode": "^1.85.0" },
+  "activationEvents": ["onLanguage:java"], "main": "./extension.js",
+  "contributes": { "languages": [{ "id": "java", "extensions": [".java"] }] } }
