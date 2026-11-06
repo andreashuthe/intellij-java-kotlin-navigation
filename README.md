@@ -131,6 +131,6 @@ Releases are built by GitHub Actions — see [RELEASING.md](RELEASING.md).
 
 ## License
 
-[MIT](LICENSE) © Andreas Huth / BITS GmbH
+[MIT](LICENSE) © Andreas Huth
 
 *IntelliJ IDEA is a trademark of JetBrains s.r.o. This extension is not affiliated with or endorsed by JetBrains.*
