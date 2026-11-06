@@ -8,6 +8,8 @@ and uses it as the GitHub release notes.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-06
+
 ### Changed
 - **Much faster, far fewer language-server requests** (benchmark on a 170-method class hierarchy:
   182 → 12 requests when opening a file, 182 → 10 after an edit; large interfaces 288 → 4, Kotlin classes 150 → 3):
