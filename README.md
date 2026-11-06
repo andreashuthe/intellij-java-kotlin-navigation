@@ -100,10 +100,18 @@ IntelliJ-like key bindings (add to your `keybindings.json`):
 For every Java/Kotlin file in a visible editor the extension asks the active language server:
 
 1. **Document symbols** → classes, interfaces and their methods.
-2. **↓ Implementations** of each type and each non-static, non-private, non-final method.
+2. **↓ Subtypes**: one *Go to Implementation* request per type. Overriding methods are then found by
+   matching signatures in those subtypes — a class without subtypes costs no further requests at all.
+   (If a subtype can't be inspected, or an abstract method finds no match, the extension falls back to
+   asking the server per method.)
 3. **↑ Supertypes** via the type hierarchy API — or, if the server doesn't support it, by resolving the
    `extends` / `implements` (Kotlin `:`) clause with *Go to Definition*. Super methods are matched by name
-   and parameter types (generic type variables such as `T` match any type).
+   and parameter types (generic type variables such as `T` match any type, Kotlin `Any`/`Int`/… match
+   Java `Object`/`int`/…).
+
+Results for other files are cached and only invalidated when those files change, so re-analysing the file
+you are typing in is almost free. Members closest to what's on screen are analysed first and hints appear
+progressively. Kotlin classes and members that are `final` by default are skipped.
 
 Everything goes through VS Code's public provider commands, so no language server is bundled and
 nothing leaves your machine. Timing information is written to the *IntelliJ Java/Kotlin Navigation* output channel.
@@ -120,7 +128,8 @@ nothing leaves your machine. Timing information is written to the *IntelliJ Java
 ```bash
 npm install
 npm test                    # unit tests (plain Node)
-npm run test:integration    # runs the extension in a real VS Code with a mock Java language server
+npm run test:integration    # runs the extension in a real VS Code with a mock Java/Kotlin language server
+npm run test:perf           # benchmark on a generated large hierarchy (request counts + timings)
 npm run package             # builds the .vsix
 ```
 

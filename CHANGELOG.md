@@ -8,6 +8,17 @@ and uses it as the GitHub release notes.
 
 ## [Unreleased]
 
+### Changed
+- **Much faster, far fewer language-server requests** (benchmark on a 170-method class hierarchy:
+  182 → 12 requests when opening a file, 182 → 10 after an edit; large interfaces 288 → 4, Kotlin classes 150 → 3):
+  - overriding methods are found by matching signatures in the subtypes instead of one request per method;
+    classes without subtypes need no further requests at all
+  - results for unchanged files are cached across edits; work for an outdated version is cancelled as you type
+  - a file is no longer analysed twice when it is opened
+  - Kotlin classes and members that are `final` by default are skipped
+  - members on screen are analysed first and hints appear progressively
+- Kotlin overrides of Java methods are matched across `Any`/`Object`, `Int`/`int`, `MutableList`/`List`, …
+
 ## [1.0.0] - 2026-11-06
 
 ### Added

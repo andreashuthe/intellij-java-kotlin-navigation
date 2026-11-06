@@ -125,9 +125,43 @@ function isTypeVar(t: string): boolean {
   return /^[A-Z][A-Z0-9]?(\[\])*$/.test(t);
 }
 
+/** Kotlin ↔ Java type names that denote the same JVM type (after normalizeType). */
+const JVM_EQUIVALENT: Record<string, string> = {
+  Any: 'Object',
+  Unit: 'void',
+  Int: 'int', Integer: 'int',
+  Long: 'long',
+  Short: 'short',
+  Byte: 'byte',
+  Double: 'double',
+  Float: 'float',
+  Boolean: 'boolean',
+  Char: 'char', Character: 'char',
+  IntArray: 'int[]', LongArray: 'long[]', ShortArray: 'short[]', ByteArray: 'byte[]',
+  DoubleArray: 'double[]', FloatArray: 'float[]', BooleanArray: 'boolean[]', CharArray: 'char[]',
+  CharSequence: 'CharSequence',
+};
+
+/** Canonical JVM-ish name so a Kotlin override matches its Java super method (and vice versa). */
+export function jvmType(t: string): string {
+  let x = t.replace(/^Mutable(?=[A-Z])/, ''); // MutableList → List
+  if (x === 'Array') return '[]'; // Array<T> lost its element type in normalizeType
+  if (JVM_EQUIVALENT[x]) x = JVM_EQUIVALENT[x];
+  // boxed Java types (Long, Short, …) collapse onto their primitive above via the Kotlin names
+  return x;
+}
+
+function sameJvmType(a: string, b: string): boolean {
+  const x = jvmType(a);
+  const y = jvmType(b);
+  if (x === y) return true;
+  // Kotlin Array<T> vs Java T[]
+  return (x === '[]' && y.endsWith('[]')) || (y === '[]' && x.endsWith('[]'));
+}
+
 export function paramsCompatible(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
-  return a.every((t, i) => t === b[i] || isTypeVar(t) || isTypeVar(b[i]));
+  return a.every((t, i) => t === b[i] || isTypeVar(t) || isTypeVar(b[i]) || sameJvmType(t, b[i]));
 }
 
 /**

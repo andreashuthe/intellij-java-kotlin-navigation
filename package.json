@@ -122,6 +122,7 @@
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && node --test test/*.test.js",
     "test:integration": "npm run compile && node integration-test/runTest.js",
+    "test:perf": "npm run compile && node integration-test/perf/run.js",
     "package": "vsce package"
   },
   "devDependencies": {

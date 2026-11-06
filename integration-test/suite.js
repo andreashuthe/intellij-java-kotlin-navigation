@@ -14,7 +14,7 @@ exports.run = async () => {
   const ext = vscode.extensions.all.find(e => e.packageJSON.name === 'intellij-java-kotlin-navigation');
   const api = await ext.activate();
   const results = {};
-  for (const f of ['EntityRepository.java', 'EntityRepositoryDao.java', 'SpecialDao.java', 'IRepository.java']) {
+  for (const f of ['EntityRepository.java', 'EntityRepositoryDao.java', 'SpecialDao.java', 'IRepository.java', 'Greeter.java', 'BaseGreeter.kt', 'FancyGreeter.kt', 'KotlinGreeter.kt']) {
     results[f] = fmt(await markersOf(api, f));
     console.log('\n== ' + f + '\n' + results[f].join('\n'));
   }
@@ -31,5 +31,17 @@ exports.run = async () => {
   const sp = results['SpecialDao.java'];
   assert.ok(sp.includes('5:flush up=O[EntityRepositoryDao,EntityRepository,IRepository] down=-'), sp.join('\n'));
   assert.ok(sp.includes('8:lock up=O[EntityRepositoryDao,EntityRepository] down=-'));
+  // Mixed Java/Kotlin: Kotlin `Any`/`Int` must match Java `Object`/`int`; Kotlin classes are final by default
+  const eq = (file, expected) => assert.deepStrictEqual(results[file], expected, `${file}:\n${results[file].join('\n')}`);
+  eq('Greeter.java', [
+    '3:Greeter up=- down=I[BaseGreeter,FancyGreeter,KotlinGreeter]',
+    '4:greet up=- down=I[BaseGreeter,FancyGreeter,KotlinGreeter]',
+  ]);
+  eq('BaseGreeter.kt', [
+    '3:BaseGreeter up=- down=O[FancyGreeter]',
+    '4:greet up=I[Greeter] down=O[FancyGreeter]',
+  ]);
+  eq('FancyGreeter.kt', ['4:greet up=O[BaseGreeter,Greeter] down=-']);
+  eq('KotlinGreeter.kt', ['4:greet up=I[Greeter] down=-']);
   console.log('\nALL INTEGRATION ASSERTIONS PASSED');
 };

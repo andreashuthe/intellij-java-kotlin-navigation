@@ -241,11 +241,22 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await app.close();
   const src = await video.path();
   const out = path.join(root, 'docs', 'demo.gif');
-  const ss = ((demoStart - t0) / 1000).toFixed(2);
-  const dur = ((demoEnd - demoStart) / 1000).toFixed(2);
+  // The recording's clock drifts a little against Date.now(); start a bit earlier so the
+  // first caption is never cut off (the lead-in is just the static editor with hints).
+  const LEAD = 3;
+  const ss = Math.max(0, (demoStart - t0) / 1000 - LEAD).toFixed(2);
+  const dur = ((demoEnd - demoStart) / 1000 + LEAD).toFixed(2);
   // crop the window title bar (shows "[Extension Development Host]")
   const filters = `crop=iw:ih-30:0:30,fps=12,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle`;
   execFileSync('ffmpeg', ['-y', '-ss', ss, '-t', dur, '-i', src, '-vf', filters, '-loop', '0', out], { stdio: 'inherit' });
+  // Optional MP4 (e.g. for social media): DEMO_MP4=path/to/demo.mp4
+  if (process.env.DEMO_MP4) {
+    execFileSync('ffmpeg', ['-y', '-ss', ss, '-t', dur, '-i', src,
+      '-vf', 'crop=iw:ih-30:0:30,scale=1280:-2:flags=lanczos,fps=30',
+      '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-an',
+      process.env.DEMO_MP4], { stdio: 'inherit' });
+    console.log(`wrote ${process.env.DEMO_MP4}`);
+  }
   console.log(`\nwrote ${out} (${(fs.statSync(out).size / 1024).toFixed(0)} KB)`);
 })().catch(e => {
   console.error(e);

@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
 import { Analyzer, EmptySymbolsError, Marker, Target } from './analyzer';
+import { WorkspaceCache } from './cache';
 
 interface DocState {
   version: number;
   markers: Marker[];
+  /** Duration of the analysis in ms (diagnostics) */
+  ms?: number;
 }
 
 const OPEN_CMD = 'intellijNav.open';
@@ -13,12 +16,14 @@ const MAX_HOVER_LINKS = 6;
 /** Public API (used by the integration tests; handy for other extensions too). */
 export interface IntellijNavApi {
   markers(uri: vscode.Uri): Marker[] | undefined;
+  /** Markers together with the document version they were computed for. */
+  markersInfo(uri: vscode.Uri): { version: number; markers: Marker[]; ms?: number } | undefined;
 }
 
 export function activate(context: vscode.ExtensionContext): IntellijNavApi {
   const controller = new Controller();
   context.subscriptions.push(controller);
-  return { markers: uri => controller.markersFor(uri) };
+  return { markers: uri => controller.markersFor(uri), markersInfo: uri => controller.markersInfo(uri) };
 }
 
 export function deactivate(): void {
@@ -30,7 +35,12 @@ class Controller implements vscode.Disposable {
   /** Invisible decoration that only carries the hover popup on the member name. */
   private readonly hoverType = vscode.window.createTextEditorDecorationType({});
   private readonly state = new Map<string, DocState>();
+  /** Markers found so far by a running analysis (rendered progressively). */
+  private readonly partial = new Map<string, DocState>();
   private readonly pending = new Map<string, vscode.CancellationTokenSource>();
+  /** Document version each running analysis works on (avoids starting the same analysis twice). */
+  private readonly computing = new Map<string, number>();
+  private readonly cache = new WorkspaceCache();
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly retries = new Map<string, number>();
   private readonly output = vscode.window.createOutputChannel('IntelliJ Java/Kotlin Navigation');
@@ -46,11 +56,19 @@ class Controller implements vscode.Disposable {
       vscode.commands.registerCommand(PICK_CMD, (arg: { title: string; targets: Target[] }) => pickTarget(arg.title, arg.targets)),
       vscode.commands.registerCommand('intellijNav.goToImplementations', () => this.navigateFromCursor('down')),
       vscode.commands.registerCommand('intellijNav.goToSuper', () => this.navigateFromCursor('up')),
-      vscode.commands.registerCommand('intellijNav.refresh', () => this.refreshAll(true)),
+      vscode.commands.registerCommand('intellijNav.refresh', () => {
+        this.cache.clear();
+        this.refreshAll(true);
+      }),
       vscode.window.onDidChangeVisibleTextEditors(() => this.refreshAll(false)),
       vscode.window.onDidChangeActiveTextEditor(e => e && this.schedule(e.document, 0)),
       vscode.workspace.onDidChangeTextDocument(e => {
-        if (this.isRelevant(e.document) && e.contentChanges.length) this.schedule(e.document, this.config().get<number>('refreshDelay', 1000));
+        if (!this.isRelevant(e.document) || !e.contentChanges.length) return;
+        const key = e.document.uri.toString();
+        // results of other files may depend on this one; stop work on the outdated version right away
+        this.cache.documentChanged(e.document.uri);
+        this.pending.get(key)?.cancel();
+        this.schedule(e.document, this.config().get<number>('refreshDelay', 1000));
       }),
       // A save anywhere can change the hierarchy of the files on screen → recompute visible editors
       vscode.workspace.onDidSaveTextDocument(d => {
@@ -62,6 +80,7 @@ class Controller implements vscode.Disposable {
       vscode.workspace.onDidCloseTextDocument(d => this.forget(d.uri.toString())),
       vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('intellijNav')) {
+          this.cache.clear();
           this.refreshAll(true);
           this.inlayChanged.fire();
         }
@@ -77,11 +96,20 @@ class Controller implements vscode.Disposable {
       ),
       vscode.window.onDidChangeTextEditorSelection(e => this.onSelection(e)),
     );
+    // Files changed outside the editor (git checkout, build, other tools)
+    const watcher = vscode.workspace.createFileSystemWatcher('**/*.{java,kt,kts}');
+    const external = (uri: vscode.Uri) => this.cache.documentChanged(uri);
+    this.disposables.push(watcher, watcher.onDidCreate(external), watcher.onDidChange(external), watcher.onDidDelete(external));
     this.refreshAll(false);
   }
 
   markersFor(uri: vscode.Uri): Marker[] | undefined {
     return this.state.get(uri.toString())?.markers;
+  }
+
+  markersInfo(uri: vscode.Uri): { version: number; markers: Marker[]; ms?: number } | undefined {
+    const st = this.state.get(uri.toString());
+    return st && { version: st.version, markers: st.markers, ms: st.ms };
   }
 
   dispose(): void {
@@ -110,6 +138,7 @@ class Controller implements vscode.Disposable {
 
   private forget(key: string): void {
     this.state.delete(key);
+    this.partial.delete(key);
     this.pending.get(key)?.cancel();
     this.pending.delete(key);
     clearTimeout(this.timers.get(key));
@@ -128,11 +157,29 @@ class Controller implements vscode.Disposable {
       for (const e of editorsFor(doc)) this.render(e, cached.markers);
       return;
     }
+    if (this.computing.get(key) === doc.version) return; // already being analysed
     clearTimeout(this.timers.get(key));
     this.timers.set(
       key,
       setTimeout(() => void this.compute(doc), delay),
     );
+  }
+
+  /** Complete result for the current version, else the partial one of a running analysis. */
+  private current(doc: vscode.TextDocument): Marker[] | undefined {
+    const key = doc.uri.toString();
+    const st = this.state.get(key);
+    if (st && st.version === doc.version) return st.markers;
+    const pt = this.partial.get(key);
+    if (pt && pt.version === doc.version) return pt.markers;
+    return undefined;
+  }
+
+  /** Line in the middle of the visible area of the (first) editor showing `doc`. */
+  private focusLine(doc: vscode.TextDocument): number | undefined {
+    const editor = vscode.window.activeTextEditor?.document === doc ? vscode.window.activeTextEditor : editorsFor(doc)[0];
+    const r = editor?.visibleRanges[0];
+    return r ? Math.floor((r.start.line + r.end.line) / 2) : undefined;
   }
 
   private async compute(doc: vscode.TextDocument): Promise<void> {
@@ -141,13 +188,34 @@ class Controller implements vscode.Disposable {
     const cts = new vscode.CancellationTokenSource();
     this.pending.set(key, cts);
     const version = doc.version;
+    this.computing.set(key, version);
     const started = Date.now();
+    let partialTimer: NodeJS.Timeout | undefined;
     try {
-      const analyzer = new Analyzer(cts.token, this.config().get<number>('maxConcurrentRequests', 4), this.config().get<boolean>('showOnTypes', true));
+      const onPartial = (found: Marker[]) => {
+        if (partialTimer || cts.token.isCancellationRequested) return;
+        // throttle: show what we have every 150 ms while the analysis is still running
+        partialTimer = setTimeout(() => {
+          partialTimer = undefined;
+          if (cts.token.isCancellationRequested || doc.version !== version) return;
+          const markers = [...found].sort((a, b) => a.range.start.line - b.range.start.line);
+          this.partial.set(key, { version, markers });
+          for (const e of editorsFor(doc)) this.render(e, markers);
+          this.inlayChanged.fire();
+        }, 150);
+      };
+      const analyzer = new Analyzer(
+        cts.token,
+        this.config().get<number>('maxConcurrentRequests', 4),
+        this.config().get<boolean>('showOnTypes', true),
+        this.cache,
+        { focusLine: this.focusLine(doc), onPartial },
+      );
       const markers = await analyzer.analyze(doc);
       if (cts.token.isCancellationRequested || doc.version !== version) return;
       this.retries.delete(key);
-      this.state.set(key, { version, markers });
+      this.partial.delete(key);
+      this.state.set(key, { version, markers, ms: Date.now() - started });
       for (const e of editorsFor(doc)) this.render(e, markers);
       this.inlayChanged.fire();
       this.output.appendLine(`${vscode.workspace.asRelativePath(doc.uri)}: ${markers.length} markers in ${Date.now() - started} ms`);
@@ -163,7 +231,9 @@ class Controller implements vscode.Disposable {
         this.timers.set(key, setTimeout(() => void this.compute(doc), delay));
       }
     } finally {
+      clearTimeout(partialTimer);
       if (this.pending.get(key) === cts) this.pending.delete(key);
+      if (this.computing.get(key) === version) this.computing.delete(key);
       cts.dispose();
     }
   }
@@ -184,10 +254,10 @@ class Controller implements vscode.Disposable {
 
   private inlayHints(doc: vscode.TextDocument, range: vscode.Range): vscode.InlayHint[] {
     if (!this.isRelevant(doc) || !this.config().get<boolean>('inlayHints', true)) return [];
-    const st = this.state.get(doc.uri.toString());
-    if (!st || st.version !== doc.version) return [];
+    const markers = this.current(doc);
+    if (!markers) return [];
     const hints: vscode.InlayHint[] = [];
-    for (const m of st.markers) {
+    for (const m of markers) {
       const line = m.range.start.line;
       if (line < range.start.line || line > range.end.line) continue;
       const parts: vscode.InlayHintLabelPart[] = [];
@@ -213,10 +283,10 @@ class Controller implements vscode.Disposable {
   /** Optional CodeLens above the declaration – the only variant VS Code lets you trigger with a plain click. */
   private codeLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
     if (!this.isRelevant(doc) || !this.config().get<boolean>('codeLens', false)) return [];
-    const st = this.state.get(doc.uri.toString());
-    if (!st || st.version !== doc.version) return [];
+    const markers = this.current(doc);
+    if (!markers) return [];
     const lenses: vscode.CodeLens[] = [];
-    for (const m of st.markers) {
+    for (const m of markers) {
       for (const dir of ['up', 'down'] as const) {
         const nav = m[dir];
         if (!nav) continue;
@@ -251,7 +321,7 @@ class Controller implements vscode.Disposable {
     if (!fullLine || !this.config().get<boolean>('clickLineNumber', false)) return;
     // Triple-click in the text also selects the whole line, but is preceded by clicks on the same line.
     if (prev && prev.uri === doc.uri.toString() && prev.line === sel.start.line && !prev.fullLine && now - prev.time < 700) return;
-    const m = this.state.get(doc.uri.toString())?.markers.find(x => x.range.start.line === sel.start.line);
+    const m = this.current(doc)?.find(x => x.range.start.line === sel.start.line);
     if (!m) return;
     const editor = e.textEditor;
     // Wait a moment: if the user is dragging over line numbers to select several lines, don't navigate.
@@ -268,7 +338,7 @@ class Controller implements vscode.Disposable {
     const editor = vscode.window.activeTextEditor;
     if (!editor) return;
     const line = editor.selection.active.line;
-    const markers = this.state.get(editor.document.uri.toString())?.markers ?? [];
+    const markers = this.current(editor.document) ?? [];
     const m = markers.find(x => x.range.start.line === line);
     const nav = m?.[dir];
     if (nav && m) {
