@@ -1,30 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2B2D30"/>
-      <stop offset="1" stop-color="#17181A"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#FF8A3D"/>
-      <stop offset="1" stop-color="#E8467C"/>
-    </linearGradient>
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="90" y1="80" x2="420" y2="440">
+      <stop offset="0" stop-color="#FF8A3D"/><stop offset="0.5" stop-color="#F0457E"/><stop offset="1" stop-color="#7F52FF"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B2D30"/><stop offset="1" stop-color="#17181A"/></linearGradient>
   </defs>
-  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
-  <rect x="8" y="8" width="240" height="240" rx="52" fill="none" stroke="#3C3F44" stroke-width="2"/>
-  <!-- connectors -->
-  <g fill="none" stroke="#7A7E85" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M128 98 V128 M128 128 H74 V150 M128 128 H182 V150"/>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <!-- hierarchy connectors: I → C, I → K -->
+  <g fill="none" stroke="url(#g)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" opacity=".55">
+    <path d="M256 212 V248 M150 248 H360 M150 248 V282 M360 248 V282"/>
   </g>
-  <!-- interface node -->
-  <circle cx="128" cy="70" r="34" fill="url(#accent)"/>
-  <text x="128" y="85" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace" font-weight="700" font-size="44" fill="#FFFFFF">I</text>
-  <!-- implementation nodes -->
-  <rect x="44" y="150" width="60" height="60" rx="16" fill="#3D8BFD"/>
-  <text x="74" y="194" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace" font-weight="700" font-size="38" fill="#FFFFFF">C</text>
-  <rect x="152" y="150" width="60" height="60" rx="16" fill="#7F52FF"/>
-  <text x="182" y="194" text-anchor="middle" font-family="DejaVu Sans Mono, Menlo, monospace" font-weight="700" font-size="38" fill="#FFFFFF">K</text>
-  <!-- navigation arrow -->
-  <g fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M206 64 V112 M192 98 L206 112 L220 98"/>
+  <g fill="none" stroke="url(#g)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
+    <!-- I (interface) -->
+    <path d="M226 92 H286 M256 92 V180 M226 180 H286"/>
+    <!-- C (Java class) -->
+    <path d="M193.1 406.8 A58 58 0 1 1 193.1 329.2"/>
+    <!-- K (Kotlin class) -->
+    <path d="M326 312 V424 M398 312 L330 372 M354 352 L400 424"/>
   </g>
 </svg>
