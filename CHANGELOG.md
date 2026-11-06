@@ -8,6 +8,8 @@ and uses it as the GitHub release notes.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-06
+
 ### Added
 - Marketplace-ready README with demo GIF, new logo.
 - GitHub Actions: CI (build, unit + integration tests, `.vsix` artifact) and a release workflow
