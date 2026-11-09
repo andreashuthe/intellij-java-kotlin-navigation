@@ -8,6 +8,8 @@ and uses it as the GitHub release notes.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-09
+
 ### Added
 - **Usages** like IntelliJ's code vision: `7 usages` / `1 usage` / `no usages` at the end of classes, methods and fields
   (also private ones). ⌘/Ctrl + Click shows the usages (one usage → jump straight there). Counted lazily for the members
