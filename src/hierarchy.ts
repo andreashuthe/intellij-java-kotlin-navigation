@@ -17,6 +17,8 @@ export class MethodHierarchyView implements vscode.TreeDataProvider<HierarchyNod
   private readonly parents = new WeakMap<HierarchyNode, HierarchyNode>();
   private data?: MethodHierarchy;
   private last?: { uri: vscode.Uri; pos: vscode.Position };
+  /** Only the newest request may update the view. */
+  private seq = 0;
 
   constructor(private readonly compute: Compute) {
     this.view = vscode.window.createTreeView(VIEW_ID, { treeDataProvider: this, showCollapseAll: true });
@@ -41,8 +43,10 @@ export class MethodHierarchyView implements vscode.TreeDataProvider<HierarchyNod
     await vscode.commands.executeCommand('setContext', CONTEXT_KEY, true);
     await vscode.commands.executeCommand(`${VIEW_ID}.focus`);
     this.view.message = 'Computing method hierarchy…';
+    const mySeq = ++this.seq;
     const doc = await vscode.workspace.openTextDocument(target.uri);
     const data = await this.compute(doc, target.pos);
+    if (mySeq !== this.seq) return this.data; // superseded by a newer request
     this.data = data;
     if (!data) {
       this.view.description = undefined;

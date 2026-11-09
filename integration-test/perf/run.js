@@ -1,4 +1,5 @@
-// node integration-test/perf/run.js [latencyMs] [outFile]   (needs a display: xvfb-run on Linux)
+// node integration-test/perf/run.js [latencyMs] [outFile] [suite]   (needs a display: xvfb-run on Linux)
+//   suite: "suite" (default – open/edit big files) or "workflows" (autosave, multi-file edit, tab switch, external changes)
 const path = require('path');
 const os = require('os');
 const { runTests } = require('@vscode/test-electron');
@@ -13,7 +14,7 @@ const generate = require('./gen-fixture');
   process.env.PERF_OUT = out;
   await runTests({
     extensionDevelopmentPath: [root, path.join(root, 'integration-test', 'mock-lsp')],
-    extensionTestsPath: path.join(__dirname, 'suite.js'),
+    extensionTestsPath: path.join(__dirname, `${process.argv[4] || 'suite'}.js`),
     launchArgs: [fixture, '--disable-extensions', '--disable-gpu', '--no-sandbox'],
     extensionTestsEnv: { MOCK_FIXTURE_DIR: fixture, MOCK_LATENCY_MS: process.env.MOCK_LATENCY_MS, PERF_OUT: out },
   });

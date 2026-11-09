@@ -5,3 +5,4 @@ out/
 .DS_Store
 release-notes.md
 perf-results.json
+perf-workflows.json

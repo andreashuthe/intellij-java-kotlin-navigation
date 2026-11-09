@@ -62,10 +62,37 @@ export function deactivate(): void {
   /* disposables handle cleanup */
 }
 
+/** Settings, read once and refreshed on configuration changes (not on every keystroke). */
+interface Settings {
+  enabled: boolean;
+  languages: string[];
+  inlayHints: boolean;
+  usages: boolean;
+  codeLens: boolean;
+  clickLineNumber: boolean;
+  showOnTypes: boolean;
+  refreshDelay: number;
+  maxConcurrentRequests: number;
+}
+
+function readSettings(): Settings {
+  const c = vscode.workspace.getConfiguration('intellijNav');
+  return {
+    enabled: c.get<boolean>('enabled', true),
+    languages: c.get<string[]>('languages', ['java', 'kotlin']),
+    inlayHints: c.get<boolean>('inlayHints', true),
+    usages: c.get<boolean>('usages', true),
+    codeLens: c.get<boolean>('codeLens', false),
+    clickLineNumber: c.get<boolean>('clickLineNumber', false),
+    showOnTypes: c.get<boolean>('showOnTypes', true),
+    refreshDelay: c.get<number>('refreshDelay', 1000),
+    maxConcurrentRequests: c.get<number>('maxConcurrentRequests', 4),
+  };
+}
+
 class Controller implements vscode.Disposable {
+  private cfg: Settings = readSettings();
   private readonly disposables: vscode.Disposable[] = [];
-  /** Invisible decoration that only carries the hover popup on the member name. */
-  private readonly hoverType = vscode.window.createTextEditorDecorationType({});
   private readonly state = new Map<string, DocState>();
   /** Markers found so far by a running analysis (rendered progressively). */
   private readonly partial = new Map<string, DocState>();
@@ -75,9 +102,11 @@ class Controller implements vscode.Disposable {
   private readonly cache = new WorkspaceCache();
   private readonly members = new Map<string, MembersState>();
   readonly hierarchy = new MethodHierarchyView((doc, pos) =>
-    new Analyzer(new vscode.CancellationTokenSource().token, this.config().get<number>('maxConcurrentRequests', 4), true, this.cache).methodHierarchy(doc, pos),
+    this.hierarchyAnalysis(doc, pos),
   );
-  private readonly usages = new UsageTracker(() => this.config().get<number>('refreshDelay', 1000));
+  /** Running Method Hierarchy computation (cancelled when a new one is requested). */
+  private hierarchyCts?: vscode.CancellationTokenSource;
+  private readonly usages = new UsageTracker(() => this.cfg.refreshDelay);
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly retries = new Map<string, number>();
   private readonly output = vscode.window.createOutputChannel('IntelliJ Java/Kotlin Navigation');
@@ -88,7 +117,14 @@ class Controller implements vscode.Disposable {
   constructor() {
     this.disposables.push(
       this.output,
-      this.hoverType,
+      // hover popup on member names, built only when the user actually hovers
+      vscode.languages.registerHoverProvider([{ language: 'java' }, { language: 'kotlin' }], {
+        provideHover: (doc, pos) => {
+          if (!this.isRelevant(doc)) return undefined;
+          const m = this.current(doc)?.find(x => x.range.contains(pos));
+          return m ? new vscode.Hover(hoverFor(m), m.range) : undefined;
+        },
+      }),
       vscode.commands.registerCommand(OPEN_CMD, (t: Target) => openTarget(t)),
       vscode.commands.registerCommand(PICK_CMD, (arg: { title: string; targets: Target[] }) => pickTarget(arg.title, arg.targets)),
       vscode.commands.registerCommand(USAGES_CMD, (arg?: { uri: string; line: number; character: number }) => showUsages(arg)),
@@ -121,18 +157,21 @@ class Controller implements vscode.Disposable {
         // results of other files may depend on this one; stop work on the outdated version right away
         this.cache.documentChanged(e.document.uri);
         this.pending.get(key)?.cancel();
-        this.schedule(e.document, this.config().get<number>('refreshDelay', 1000));
+        // only files on screen are analysed; others (e.g. touched by a refactoring) when they are shown
+        if (editorsFor(e.document).length) this.schedule(e.document, this.cfg.refreshDelay);
       }),
       // A save anywhere can change the hierarchy of the files on screen → recompute visible editors
       vscode.workspace.onDidSaveTextDocument(d => {
         if (this.isRelevant(d)) {
           this.usages.invalidateAll();
-          this.refreshAll(true);
+          // debounced: with auto-save this fires every second while typing
+          this.refreshAll(true, this.cfg.refreshDelay);
         }
       }),
       vscode.workspace.onDidCloseTextDocument(d => this.forget(d.uri.toString())),
       vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('intellijNav')) {
+          this.cfg = readSettings();
           this.cache.clear();
           this.usages.clear();
           this.refreshAll(true);
@@ -164,6 +203,15 @@ class Controller implements vscode.Disposable {
     this.refreshAll(false);
   }
 
+  private hierarchyAnalysis(doc: vscode.TextDocument, pos: vscode.Position): Promise<MethodHierarchy | undefined> {
+    this.hierarchyCts?.cancel();
+    this.hierarchyCts?.dispose();
+    const cts = (this.hierarchyCts = new vscode.CancellationTokenSource());
+    return new Analyzer(cts.token, this.cfg.maxConcurrentRequests, true, this.cache)
+      .methodHierarchy(doc, pos)
+      .then(r => (cts.token.isCancellationRequested ? undefined : r));
+  }
+
   markersFor(uri: vscode.Uri): Marker[] | undefined {
     return this.state.get(uri.toString())?.markers;
   }
@@ -182,25 +230,21 @@ class Controller implements vscode.Disposable {
   dispose(): void {
     for (const t of this.timers.values()) clearTimeout(t);
     for (const c of this.pending.values()) c.cancel();
+    this.hierarchyCts?.cancel();
     for (const d of this.disposables) d.dispose();
   }
 
-  private config() {
-    return vscode.workspace.getConfiguration('intellijNav');
-  }
-
   private isRelevant(doc: vscode.TextDocument): boolean {
-    if (!this.config().get<boolean>('enabled', true)) return false;
+    if (!this.cfg.enabled) return false;
     if (doc.uri.scheme === 'output' || doc.uri.scheme === 'git') return false;
-    return this.config().get<string[]>('languages', ['java', 'kotlin']).includes(doc.languageId);
+    return this.cfg.languages.includes(doc.languageId);
   }
 
-  private refreshAll(force: boolean): void {
+  private refreshAll(force: boolean, delay = 0): void {
     // keep showing the old results while the new analysis runs
     if (force) for (const st of this.state.values()) st.exact = false;
     for (const e of vscode.window.visibleTextEditors) {
-      if (this.isRelevant(e.document)) this.schedule(e.document, 0);
-      else this.clear(e);
+      if (this.isRelevant(e.document)) this.schedule(e.document, delay);
     }
   }
 
@@ -217,16 +261,10 @@ class Controller implements vscode.Disposable {
   }
 
   private schedule(doc: vscode.TextDocument, delay: number): void {
-    if (!this.isRelevant(doc)) {
-      for (const e of editorsFor(doc)) this.clear(e);
-      return;
-    }
+    if (!this.isRelevant(doc)) return;
     const key = doc.uri.toString();
     const cached = this.state.get(key);
-    if (cached && cached.exact && cached.version === doc.version) {
-      for (const e of editorsFor(doc)) this.render(e, cached.markers);
-      return;
-    }
+    if (cached && cached.exact && cached.version === doc.version) return; // up to date
     if (this.computing.get(key) === doc.version) return; // already being analysed
     clearTimeout(this.timers.get(key));
     this.timers.set(
@@ -318,14 +356,13 @@ class Controller implements vscode.Disposable {
           if (cts.token.isCancellationRequested || doc.version !== version) return;
           const markers = [...found].sort((a, b) => a.range.start.line - b.range.start.line);
           this.partial.set(key, { version, markers, exact: true });
-          for (const e of editorsFor(doc)) this.render(e, markers);
           this.inlayChanged.fire();
         }, 150);
       };
       const analyzer = new Analyzer(
         cts.token,
-        this.config().get<number>('maxConcurrentRequests', 4),
-        this.config().get<boolean>('showOnTypes', true),
+        this.cfg.maxConcurrentRequests,
+        this.cfg.showOnTypes,
         this.cache,
         {
           focusLine: this.focusLine(doc),
@@ -342,7 +379,6 @@ class Controller implements vscode.Disposable {
       this.retries.delete(key);
       this.partial.delete(key);
       this.state.set(key, { version, markers, exact: true, ms: Date.now() - started });
-      for (const e of editorsFor(doc)) this.render(e, markers);
       this.inlayChanged.fire();
       this.output.appendLine(`${vscode.workspace.asRelativePath(doc.uri)}: ${markers.length} markers in ${Date.now() - started} ms`);
     } catch (err) {
@@ -364,28 +400,16 @@ class Controller implements vscode.Disposable {
     }
   }
 
-  private clear(editor: vscode.TextEditor): void {
-    editor.setDecorations(this.hoverType, []);
-  }
-
-  /** Attach the hover popup (with navigation links) to each member name. */
-  private render(editor: vscode.TextEditor, markers: Marker[]): void {
-    editor.setDecorations(
-      this.hoverType,
-      markers.map(m => ({ range: m.range, hoverMessage: hoverFor(m) })),
-    );
-  }
-
   // ------------------------------------------------------------ clickable inlay ("1 implementation")
 
   private inlayHints(doc: vscode.TextDocument, range: vscode.Range): vscode.InlayHint[] {
-    if (!this.isRelevant(doc) || !this.config().get<boolean>('inlayHints', true)) return [];
+    if (!this.isRelevant(doc) || !this.cfg.inlayHints) return [];
     const inRange = (line: number) => line >= range.start.line && line <= range.end.line;
     const byLine = new Map<number, { marker?: Marker; member?: Member }>();
     for (const m of this.current(doc) ?? []) {
       if (inRange(m.range.start.line)) byLine.set(m.range.start.line, { marker: m });
     }
-    const showUsages = this.config().get<boolean>('usages', true);
+    const showUsages = this.cfg.usages;
     const ms = showUsages ? this.currentMembers(doc) : undefined;
     const visibleMembers: Member[] = [];
     for (const m of ms?.members ?? []) {
@@ -433,9 +457,9 @@ class Controller implements vscode.Disposable {
 
   /** Optional CodeLens above the declaration – the only variant VS Code lets you trigger with a plain click. */
   private codeLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
-    if (!this.isRelevant(doc) || !this.config().get<boolean>('codeLens', false)) return [];
+    if (!this.isRelevant(doc) || !this.cfg.codeLens) return [];
     const lenses: vscode.CodeLens[] = [];
-    if (this.config().get<boolean>('usages', true)) {
+    if (this.cfg.usages) {
       const ms = this.currentMembers(doc);
       if (ms?.exact) for (const m of ms.members) lenses.push(new UsageLens(doc, m));
     }
@@ -481,7 +505,7 @@ class Controller implements vscode.Disposable {
     const prev = this.lastMouseSel;
     const now = Date.now();
     this.lastMouseSel = { uri: doc.uri.toString(), line: sel.start.line, time: now, fullLine };
-    if (!fullLine || !this.config().get<boolean>('clickLineNumber', false)) return;
+    if (!fullLine || !this.cfg.clickLineNumber) return;
     // Triple-click in the text also selects the whole line, but is preceded by clicks on the same line.
     if (prev && prev.uri === doc.uri.toString() && prev.line === sel.start.line && !prev.fullLine && now - prev.time < 700) return;
     const m = this.current(doc)?.find(x => x.range.start.line === sel.start.line);

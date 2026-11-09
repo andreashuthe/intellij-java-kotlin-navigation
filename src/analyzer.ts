@@ -535,15 +535,23 @@ export class Analyzer {
     const key = `S:${uri.toString()}#${bareName(type.name)}#${this.headerText(doc, type)}`;
     const hit = this.cache.get<ResolvedType[]>(key);
     if (hit) return hit;
-    const result = await this.computeDirectSupertypes(uri, type, doc);
+    const { result, complete } = await this.computeDirectSupertypes(uri, type, doc);
     if (!this.token.isCancellationRequested) {
       const selfRef = result.some(r => r.uri.toString() === uri.toString());
-      this.cache.set(key, uri, result, selfRef);
+      // The header text is part of the key; besides that only the supertypes' own files matter – if all of them
+      // were resolved. An unresolved one could appear in any file later, so then any change invalidates the entry.
+      const deps = complete ? [...new Set(result.map(r => r.uri.toString()))] : undefined;
+      this.cache.set(key, uri, result, selfRef, deps);
     }
     return result;
   }
 
-  private async computeDirectSupertypes(uri: vscode.Uri, type: vscode.DocumentSymbol, doc: vscode.TextDocument): Promise<ResolvedType[]> {
+  /** `complete` = every declared supertype could be resolved to source (only then are its dependencies known). */
+  private async computeDirectSupertypes(
+    uri: vscode.Uri,
+    type: vscode.DocumentSymbol,
+    doc: vscode.TextDocument,
+  ): Promise<{ result: ResolvedType[]; complete: boolean }> {
     // 1) LSP type hierarchy, if the server supports it
     try {
       const items = await this.limit(() =>
@@ -553,12 +561,14 @@ export class Analyzer {
         const supers = await this.limit(() => vscode.commands.executeCommand<vscode.TypeHierarchyItem[]>('vscode.provideSupertypes', items[0]));
         if (supers) {
           const resolved: ResolvedType[] = [];
+          let complete = true;
           for (const s of supers) {
             if (s.name === 'Object' || s.name === 'java.lang.Object' || s.name === 'Any') continue;
             const r = await this.resolveTypeAt(s.uri, s.selectionRange.start, s.kind === vscode.SymbolKind.Interface);
             if (r) resolved.push(r);
+            else complete = false;
           }
-          return resolved;
+          return { result: resolved, complete };
         }
       }
     } catch {
@@ -572,18 +582,18 @@ export class Analyzer {
     const header = brace >= 0 ? text.slice(0, brace) : text.split('\n')[0];
     const refs = parseSupertypeRefs(blankComments(header), doc.languageId);
     const resolved: ResolvedType[] = [];
+    let complete = true;
     for (const ref of refs) {
       const pos = doc.positionAt(startOff + ref.offset);
       const defs = await this.limit(() =>
         vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>('vscode.executeDefinitionProvider', uri, pos),
       );
       const first = defs?.[0];
-      if (!first) continue;
-      const target = toLocation(first);
-      const r = await this.resolveTypeAt(target.uri, target.range.start);
+      const r = first ? await this.resolveTypeAt(toLocation(first).uri, toLocation(first).range.start) : undefined;
       if (r) resolved.push(r);
+      else complete = false;
     }
-    return resolved;
+    return { result: resolved, complete };
   }
 
   private async resolveTypeAt(uri: vscode.Uri, pos: vscode.Position, interfaceHint?: boolean): Promise<ResolvedType | undefined> {

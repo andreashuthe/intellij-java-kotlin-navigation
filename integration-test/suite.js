@@ -118,6 +118,16 @@ exports.run = async () => {
   await vscode.commands.executeCommand('intellijNav.previousMember');
   assert.equal(svcEditor.selection.active.line + 1, 7);
 
+  // Hover popup on a member name (hover provider) with the navigation links
+  const repoDoc = await vscode.workspace.openTextDocument(fx('EntityRepository.java'));
+  await vscode.window.showTextDocument(repoDoc);
+  const hoverLine = repoDoc.getText().split('\n').findIndex(l => l.includes('boolean contains('));
+  const hovers = await vscode.commands.executeCommand('vscode.executeHoverProvider', repoDoc.uri, new vscode.Position(hoverLine, repoDoc.lineAt(hoverLine).text.indexOf('contains') + 2));
+  const hoverText = hovers.flatMap(h => h.contents.map(c => (typeof c === 'string' ? c : c.value))).join('\n');
+  console.log('== hover on contains\n' + hoverText.slice(0, 160));
+  assert.match(hoverText, /Is implemented in/);
+  assert.match(hoverText, /EntityRepositoryDao/);
+
   // Method Hierarchy (IntelliJ ⌘⇧H)
   const treeLines = h => {
     const out = [];

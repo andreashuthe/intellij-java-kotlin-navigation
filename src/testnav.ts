@@ -143,13 +143,28 @@ const MEMBER_KINDS = new Set<vscode.SymbolKind>([
   vscode.SymbolKind.EnumMember,
 ]);
 
+const memberLines = new WeakMap<vscode.TextDocument, { version: number; lines: vscode.Position[] }>();
+
 /** IntelliJ's "Next/Previous Method": moves the caret to the next/previous declaration in the file. */
 export async function jumpToMember(direction: 1 | -1): Promise<void> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) return;
+  const lines = await memberPositions(editor.document);
+  const cur = editor.selection.active.line;
+  const target = direction > 0 ? lines.find(p => p.line > cur) : [...lines].reverse().find(p => p.line < cur);
+  if (!target) return;
+  editor.selection = new vscode.Selection(target, target);
+  editor.revealRange(new vscode.Range(target, target), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+}
+
+/** Declaration positions of the document, cached per version (repeated key presses need no server request). */
+async function memberPositions(doc: vscode.TextDocument): Promise<vscode.Position[]> {
+  const hit = memberLines.get(doc);
+  if (hit && hit.version === doc.version) return hit.lines;
+  const version = doc.version;
   const raw = await vscode.commands.executeCommand<(vscode.DocumentSymbol | vscode.SymbolInformation)[]>(
     'vscode.executeDocumentSymbolProvider',
-    editor.document.uri,
+    doc.uri,
   );
   const starts: vscode.Position[] = [];
   const visit = (list: vscode.DocumentSymbol[]) => {
@@ -163,9 +178,6 @@ export async function jumpToMember(direction: 1 | -1): Promise<void> {
   };
   visit(normalizeSymbols(raw ?? []));
   const lines = [...new Map(starts.map(p => [p.line, p])).values()].sort((a, b) => a.line - b.line);
-  const cur = editor.selection.active.line;
-  const target = direction > 0 ? lines.find(p => p.line > cur) : [...lines].reverse().find(p => p.line < cur);
-  if (!target) return;
-  editor.selection = new vscode.Selection(target, target);
-  editor.revealRange(new vscode.Range(target, target), vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  if (lines.length) memberLines.set(doc, { version, lines });
+  return lines;
 }

@@ -243,6 +243,7 @@
     "test": "npm run compile && node --test test/*.test.js",
     "test:integration": "npm run compile && node integration-test/runTest.js",
     "test:perf": "npm run compile && node integration-test/perf/run.js",
+    "test:perf:workflows": "npm run compile && node integration-test/perf/run.js 15 perf-workflows.json workflows",
     "package": "vsce package"
   },
   "devDependencies": {

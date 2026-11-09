@@ -18,6 +18,8 @@ interface Entry {
 export class UsageTracker implements vscode.Disposable {
   private readonly entries = new Map<string, Map<string, Entry>>();
   private readonly lastEdit = new Map<string, number>();
+  /** Last edit in any file – counts invalidated by a save are refreshed only once the user pauses everywhere. */
+  private lastEditAny = 0;
   private readonly limit = createLimiter(2);
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChange = this.changed.event;
@@ -58,11 +60,28 @@ export class UsageTracker implements vscode.Disposable {
     }
     let map = this.entries.get(uri);
     if (!map) this.entries.set(uri, (map = new Map()));
+    // outdated counts (not missing ones) wait until the user pauses typing in any file (auto-save!)
+    const sinceAnyEdit = Date.now() - this.lastEditAny;
+    const refreshStale = sinceAnyEdit >= delay;
+    let deferred = false;
     for (const m of members) {
       let e = map.get(m.key);
       if (!e) map.set(m.key, (e = { stale: true, inflight: false, gen: 0 }));
       if (e.inflight || (!e.stale && e.count !== undefined)) continue;
+      if (e.count !== undefined && !refreshStale) {
+        deferred = true;
+        continue;
+      }
       this.fetch(doc, doc.version, m, e);
+    }
+    if (deferred && !this.quietTimers.has('*')) {
+      this.quietTimers.set(
+        '*',
+        setTimeout(() => {
+          this.quietTimers.delete('*');
+          this.changed.fire();
+        }, delay - sinceAnyEdit + 50),
+      );
     }
   }
 
@@ -111,6 +130,7 @@ export class UsageTracker implements vscode.Disposable {
   documentChanged(uri: vscode.Uri): void {
     const key = uri.toString();
     this.lastEdit.set(key, Date.now());
+    this.lastEditAny = Date.now();
     this.markStale(this.entries.get(key));
   }
 

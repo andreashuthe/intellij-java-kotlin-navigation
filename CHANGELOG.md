@@ -20,6 +20,17 @@ and uses it as the GitHub release notes.
 - *Go to Test* and *Show Usages* in the editor context menu; IntelliJ Nav commands only show up in the command
   palette for Java/Kotlin files.
 
+### Changed
+- **Performance** (measured with the new workflow benchmark `npm run test:perf:workflows`, results unchanged):
+  - typing with auto-save: ~4× less CPU, usage counts refreshed once after you pause instead of after every save,
+    no repeated supertype lookups (68 → 42 language-server requests, the rest are VS Code's own outline updates)
+  - switching tabs: ~4× less CPU – the hover popup is now built on demand instead of being attached to every hint
+  - edits in files that are not visible (e.g. a rename refactoring) no longer trigger any analysis until the file is shown
+  - saves recompute the visible files debounced instead of immediately
+  - cached supertypes are only invalidated when one of their own files changes; bounded symbol cache
+  - settings are read once instead of on every keystroke; Method Hierarchy requests can be superseded;
+    Next/Previous Member reuses the file's declarations while the file is unchanged
+
 ## [1.1.1] - 2026-11-09
 
 ### Changed
