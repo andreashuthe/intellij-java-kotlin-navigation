@@ -2,7 +2,7 @@
   "name": "intellij-java-kotlin-navigation",
   "displayName": "IntelliJ Java/Kotlin Navigation",
   "description": "IntelliJ-style usages and interface / implementation / override navigation ('7 usages', '1 implementation', '↑ Interface' hints) in Java and Kotlin. Works on top of any language server (e.g. JetBrains' 'Java and Kotlin by IntelliJ IDEA').",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "andreashuthe",
   "author": "Andreas Huth",
   "license": "MIT",
