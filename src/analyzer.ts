@@ -42,6 +42,25 @@ const TYPE_KINDS = new Set<vscode.SymbolKind>([
   vscode.SymbolKind.Object,
 ]);
 const METHOD_KINDS = new Set<vscode.SymbolKind>([vscode.SymbolKind.Method, vscode.SymbolKind.Function]);
+const FIELD_KINDS = new Set<vscode.SymbolKind>([
+  vscode.SymbolKind.Field,
+  vscode.SymbolKind.Property,
+  vscode.SymbolKind.Constant,
+  vscode.SymbolKind.EnumMember,
+]);
+
+/** Annotations of members that are called by a framework – IntelliJ shows no usage count for them either. */
+const IMPLICITLY_USED = /@(Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate|BeforeEach|AfterEach|BeforeAll|AfterAll|Before|After|BeforeClass|AfterClass)\b/;
+
+/** A declaration whose usages can be counted ("7 usages"). */
+export interface Member {
+  /** Stable identity across edits, e.g. `F:Outer.Inner.field` or `M:Type.method(String,int)` */
+  key: string;
+  name: string;
+  kind: 'type' | 'method' | 'field';
+  /** Range of the declared name */
+  range: vscode.Range;
+}
 
 interface ResolvedType {
   uri: vscode.Uri;
@@ -62,6 +81,8 @@ export interface AnalyzeOptions {
   focusLine?: number;
   /** Called (repeatedly) with the markers found so far, for progressive rendering. */
   onPartial?: (markers: Marker[]) => void;
+  /** Called once the document's symbols are known, with all members whose usages can be counted. */
+  onMembers?: (members: Member[]) => void;
 }
 
 /**
@@ -99,6 +120,7 @@ export class Analyzer {
       return [];
     }
     this.docCache.set(doc.uri.toString(), Promise.resolve(doc));
+    this.options.onMembers?.(this.collectMembers(doc, symbols));
     const markers: Marker[] = [];
     const types: vscode.DocumentSymbol[] = [];
     const visitTypes = (list: vscode.DocumentSymbol[]) => {
@@ -119,6 +141,48 @@ export class Analyzer {
     await Promise.all(types.map(t => this.analyzeType(doc, t, onFound, multiType)));
     markers.sort((a, b) => a.range.start.line - b.range.start.line);
     return markers;
+  }
+
+  /** Types, methods and fields of the document (no constructors, no framework-invoked members). */
+  private collectMembers(doc: vscode.TextDocument, symbols: vscode.DocumentSymbol[]): Member[] {
+    const members: Member[] = [];
+    const seen = new Map<string, number>();
+    const add = (key: string, s: vscode.DocumentSymbol, kind: Member['kind']) => {
+      const n = seen.get(key) ?? 0;
+      seen.set(key, n + 1);
+      members.push({ key: n ? `${key}#${n}` : key, name: bareName(s.name), kind, range: s.selectionRange });
+    };
+    const visit = (list: vscode.DocumentSymbol[], owner: string) => {
+      for (const s of list) {
+        const name = bareName(s.name);
+        if (TYPE_KINDS.has(s.kind)) {
+          const path = owner ? `${owner}.${name}` : name;
+          add(`T:${path}`, s, 'type');
+          visit(s.children ?? [], path);
+        } else if (METHOD_KINDS.has(s.kind)) {
+          if (name === owner.split('.').pop() || this.implicitlyUsed(doc, s)) continue; // constructor-like / @Test …
+          const sig = this.methodSig(doc, s);
+          add(`M:${owner}.${sig.name}(${sig.params?.join(',') ?? '?'})`, s, 'method');
+        } else if (FIELD_KINDS.has(s.kind)) {
+          add(`F:${owner}.${name}`, s, 'field');
+        }
+      }
+    };
+    visit(symbols, '');
+    return members;
+  }
+
+  /** JUnit lifecycle/test methods and `main` are invoked by a framework / the JVM. */
+  private implicitlyUsed(doc: vscode.TextDocument, m: vscode.DocumentSymbol): boolean {
+    if (bareName(m.name) === 'main' && /\bstatic\b/.test(this.modifierText(doc, m))) return true;
+    if (IMPLICITLY_USED.test(this.modifierText(doc, m))) return true;
+    // Some servers start the symbol range after the annotations: look at the lines just above
+    for (let l = m.selectionRange.start.line - 1, i = 0; l >= 0 && i < 6; l--, i++) {
+      const t = doc.lineAt(l).text.trim();
+      if (!t.startsWith('@')) break;
+      if (IMPLICITLY_USED.test(t)) return true;
+    }
+    return false;
   }
 
   private text(doc: vscode.TextDocument): string {

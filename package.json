@@ -1,7 +1,7 @@
 {
   "name": "intellij-java-kotlin-navigation",
   "displayName": "IntelliJ Java/Kotlin Navigation",
-  "description": "IntelliJ-style interface / implementation / override navigation ('1 implementation', '↑ Interface' hints) in Java and Kotlin. Works on top of any language server (e.g. JetBrains' 'Java and Kotlin by IntelliJ IDEA').",
+  "description": "IntelliJ-style usages and interface / implementation / override navigation ('7 usages', '1 implementation', '↑ Interface' hints) in Java and Kotlin. Works on top of any language server (e.g. JetBrains' 'Java and Kotlin by IntelliJ IDEA').",
   "version": "1.0.1",
   "publisher": "andreashuthe",
   "author": "Andreas Huth",
@@ -34,6 +34,8 @@
     "override",
     "navigation",
     "code vision",
+    "usages",
+    "find references",
     "inlay hints",
     "go to implementation",
     "spring"
@@ -54,6 +56,11 @@
       {
         "command": "intellijNav.goToSuper",
         "title": "Go to Super Method / Interface",
+        "category": "IntelliJ Nav"
+      },
+      {
+        "command": "intellijNav.showUsages",
+        "title": "Show Usages",
         "category": "IntelliJ Nav"
       },
       {
@@ -85,6 +92,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show clickable IntelliJ-style hints at the end of declarations, e.g. '1 implementation' or '↑ EntityRepository'. Cmd/Ctrl+Click to navigate."
+        },
+        "intellijNav.usages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show IntelliJ-style usage counts ('7 usages') for classes, methods and fields. Only members on screen are counted. ⌘/Ctrl+Click shows the usages."
         },
         "intellijNav.codeLens": {
           "type": "boolean",

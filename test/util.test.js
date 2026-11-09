@@ -50,3 +50,29 @@ test('Kotlin and Java parameter types match', () => {
   const javaSuper = [{ name: 'greet', params: ['Object', 'int'] }, { name: 'greet', params: ['String'] }];
   assert.equal(s.findMatchingMethod({ name: 'greet', params: ['Any', 'Int'] }, javaSuper), javaSuper[0]);
 });
+
+const { mapPosition, mapPositionAll, usageLabel } = require('../out/util');
+const P = (line, character) => ({ line, character });
+const C = (sl, sc, el, ec, text) => ({ start: P(sl, sc), end: P(el, ec), text });
+
+test('mapPosition – edits before, after and around a declaration', () => {
+  const name = P(10, 8);
+  assert.deepEqual(mapPosition(name, C(2, 0, 2, 0, '\n\n')), P(12, 8)); // 2 lines inserted above
+  assert.deepEqual(mapPosition(name, C(3, 0, 5, 0, '')), P(8, 8)); // 2 lines deleted above
+  assert.deepEqual(mapPosition(name, C(20, 0, 20, 0, 'x')), name); // edit below
+  assert.deepEqual(mapPosition(name, C(10, 4, 10, 4, 'abc')), P(10, 11)); // typed in front, same line
+  assert.deepEqual(mapPosition(name, C(10, 20, 10, 20, 'abc')), name); // typed behind, same line
+  assert.equal(mapPosition(name, C(9, 0, 11, 0, '')), undefined); // declaration deleted
+  assert.deepEqual(mapPosition(name, C(10, 0, 10, 4, '\n  ')), P(11, 6)); // line split in front of it
+});
+
+test('mapPositionAll applies several changes in order', () => {
+  assert.deepEqual(mapPositionAll(P(5, 2), [C(0, 0, 0, 0, '\n'), C(0, 0, 0, 0, '\n')]), P(7, 2));
+  assert.equal(mapPositionAll(P(5, 2), [C(4, 0, 6, 0, ''), C(0, 0, 0, 0, '\n')]), undefined);
+});
+
+test('usageLabel uses IntelliJ wording', () => {
+  assert.equal(usageLabel(0), 'no usages');
+  assert.equal(usageLabel(1), '1 usage');
+  assert.equal(usageLabel(7), '7 usages');
+});

@@ -28,6 +28,11 @@ async function scenario(api, file, edit) {
   const r = await waitFor(api, doc);
   const dump = dumpMarkers(api.markersInfo(doc.uri).markers);
   const cold = { analysisMs: api.markersInfo(doc.uri).ms, ms: Date.now() - t0, markers: r.n, cpuMs: Math.round((process.cpuUsage(cpu0).user + process.cpuUsage(cpu0).system) / 1000), requests: await vscode.commands.executeCommand('mockLsp.stats') };
+  // usages are counted lazily for what is on screen only
+  await sleep(2500);
+  const u = api.usagesInfo(doc.uri);
+  const counted = Object.values(u.counts).filter(c => c !== undefined).length;
+  cold.usages = { members: Object.keys(u.counts).length, counted, referenceRequests: (await vscode.commands.executeCommand('mockLsp.stats')).references || 0 };
   let warm;
   if (edit) {
     await sleep(300);

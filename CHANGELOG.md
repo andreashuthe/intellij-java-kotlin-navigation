@@ -8,6 +8,16 @@ and uses it as the GitHub release notes.
 
 ## [Unreleased]
 
+### Added
+- **Usages** like IntelliJ's code vision: `7 usages` / `1 usage` / `no usages` at the end of classes, methods and fields
+  (also private ones). ⌘/Ctrl + Click shows the usages (one usage → jump straight there). Counted lazily for the members
+  on screen only and refreshed when you pause typing. No count for `@Test`/JUnit lifecycle methods and `main`.
+  Setting `intellijNav.usages`, command *IntelliJ Nav: Show Usages* (bind it to `Alt+F7` like IntelliJ).
+- Usage counts also appear in the optional CodeLens (resolved only for visible lenses).
+
+### Changed
+- Hints no longer disappear while typing: they move along with the code and are refreshed when you pause.
+
 ## [1.0.1] - 2026-11-06
 
 ### Changed

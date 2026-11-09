@@ -36,27 +36,49 @@ function parse(src, kotlin) {
   const lines = src.split('\n');
   let type;
   const methods = [];
+  const fields = [];
+  let depth = 0; // brace depth at the start of the line – members live at depth 1
   lines.forEach((l, i) => {
+    const d = depth;
+    depth += (l.match(/\{/g) || []).length - (l.match(/\}/g) || []).length;
     const t = l.match(/\b(class|interface|object)\s+(\w+)/);
     if (t && !type) {
       const c = l.indexOf(t[2]);
       type = { kind: t[1], name: t[2], line: i, col: c, header: l };
       return;
     }
+    if (!type || d !== 1) return;
     const m = kotlin
       ? l.match(/^\s+(?:[\w]+\s+)*fun\s+(\w+)\s*\(/)
-      : l.match(/^\s+(?:@\w+\s+)?(?:public|protected|private)?\s*(?:abstract\s+|static\s+|final\s+)*[\w<>\[\]]+\s+(\w+)\s*\(/);
-    if (m && type) methods.push({ name: m[1], line: i, col: l.indexOf(m[1] + '(') });
+      : l.match(/^\s+(?:@\w+\s+)?(?:public|protected|private)?\s*(?:abstract\s+|static\s+|final\s+)*[\w<>\[\]]+\s+(\w+)\s*\(/) ||
+        l.match(/^\s+(?:public|protected|private)\s+(\w+)\s*\(/); // constructor
+    if (m) {
+      methods.push({ name: m[1], line: i, col: l.indexOf(m[1] + '('), ctor: m[1] === type.name });
+      return;
+    }
+    const f = kotlin
+      ? l.match(/^\s+(?:(?:private|protected|public|internal|override|lateinit|open)\s+)*(?:val|var)\s+(\w+)/)
+      : l.match(/^\s+(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:private|protected|public|static|final)\s+)*[\w<>\[\],?]+\s+(\w+)\s*(?:=[^;]*)?;\s*$/);
+    if (f && f[1] !== 'return') fields.push({ name: f[1], line: i, col: l.search(new RegExp(`\\b${f[1]}\\b`)) });
   });
-  return { type, methods, lineCount: lines.length, kotlin };
+  return { type, methods, fields, lineCount: lines.length, kotlin };
 }
 function symbols(p) {
   if (!p.type) return [];
   const r = (l, c, n) => new vscode.Range(l, c, l, c + n);
   const ts = new vscode.DocumentSymbol(p.type.name, '', p.type.kind === 'interface' ? vscode.SymbolKind.Interface : vscode.SymbolKind.Class,
     new vscode.Range(0, 0, p.lineCount - 1, 0), r(p.type.line, p.type.col, p.type.name.length));
-  ts.children = p.methods.map(m => new vscode.DocumentSymbol(m.name, '', vscode.SymbolKind.Method, new vscode.Range(m.line, 0, m.line + 1, 0), r(m.line, m.col, m.name.length)));
+  ts.children = [
+    ...p.fields.map(f => new vscode.DocumentSymbol(f.name, '', vscode.SymbolKind.Field, new vscode.Range(f.line, 0, f.line, 200), r(f.line, f.col, f.name.length))),
+    ...p.methods.map(m => new vscode.DocumentSymbol(m.name, '', m.ctor ? vscode.SymbolKind.Constructor : vscode.SymbolKind.Method,
+      new vscode.Range(m.line, 0, m.line + 1, 0), r(m.line, m.col, m.name.length))),
+  ].sort((a, b) => a.range.start.line - b.range.start.line);
   return [ts];
+}
+/** Current text of a source file (open editor buffer wins over the file on disk). */
+function sourceText(uri) {
+  const open = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
+  return open ? open.getText() : fs.readFileSync(uri.fsPath, 'utf8');
 }
 let filesCache;
 const sourceFiles = () => {
@@ -84,6 +106,23 @@ exports.activate = ctx => {
         if (!u) return delay([]);
         const p = parseFile(u);
         return delay([new vscode.Location(u, new vscode.Position(p.type.line, p.type.col))]);
+      },
+    }),
+    // "Find References": whole-word occurrences (incl. the declaration); private members only in their own file
+    vscode.languages.registerReferenceProvider(sel, {
+      provideReferences(d, pos) {
+        count('references');
+        const w = d.getText(d.getWordRangeAtPosition(pos));
+        const priv = /\bprivate\b/.test(d.lineAt(pos.line).text);
+        const uris = priv ? [d.uri] : sourceFiles();
+        const re = new RegExp(`\\b${w}\\b`, 'g');
+        const out = [];
+        for (const u of uris) {
+          sourceText(u).split('\n').forEach((l, i) => {
+            for (const m of l.matchAll(re)) out.push(new vscode.Location(u, new vscode.Range(i, m.index, i, m.index + w.length)));
+          });
+        }
+        return delay(out);
       },
     }),
     vscode.languages.registerImplementationProvider(sel, {

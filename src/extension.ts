@@ -1,16 +1,37 @@
 import * as vscode from 'vscode';
-import { Analyzer, EmptySymbolsError, Marker, Target } from './analyzer';
+import { Analyzer, EmptySymbolsError, Marker, Member, Target } from './analyzer';
 import { WorkspaceCache } from './cache';
+import { findUsages, UsageTracker } from './usages';
+import { mapPositionAll, TextChange, usageLabel } from './util';
 
 interface DocState {
   version: number;
   markers: Marker[];
+  /** false = positions were carried along through edits; a fresh analysis is due */
+  exact: boolean;
   /** Duration of the analysis in ms (diagnostics) */
   ms?: number;
 }
 
+interface MembersState {
+  version: number;
+  exact: boolean;
+  members: Member[];
+}
+
+/** CodeLens for a usage count; the count is fetched lazily when VS Code resolves visible lenses. */
+class UsageLens extends vscode.CodeLens {
+  constructor(
+    readonly doc: vscode.TextDocument,
+    readonly member: Member,
+  ) {
+    super(member.range);
+  }
+}
+
 const OPEN_CMD = 'intellijNav.open';
 const PICK_CMD = 'intellijNav.pick';
+const USAGES_CMD = 'intellijNav.showUsages';
 const MAX_HOVER_LINKS = 6;
 
 /** Public API (used by the integration tests; handy for other extensions too). */
@@ -18,12 +39,18 @@ export interface IntellijNavApi {
   markers(uri: vscode.Uri): Marker[] | undefined;
   /** Markers together with the document version they were computed for. */
   markersInfo(uri: vscode.Uri): { version: number; markers: Marker[]; ms?: number } | undefined;
+  /** Usage counts computed so far, by member key (tests / diagnostics). */
+  usagesInfo(uri: vscode.Uri): { counts: Record<string, number | undefined>; requests: number };
 }
 
 export function activate(context: vscode.ExtensionContext): IntellijNavApi {
   const controller = new Controller();
   context.subscriptions.push(controller);
-  return { markers: uri => controller.markersFor(uri), markersInfo: uri => controller.markersInfo(uri) };
+  return {
+    markers: uri => controller.markersFor(uri),
+    markersInfo: uri => controller.markersInfo(uri),
+    usagesInfo: uri => controller.usagesInfo(uri),
+  };
 }
 
 export function deactivate(): void {
@@ -41,6 +68,8 @@ class Controller implements vscode.Disposable {
   /** Document version each running analysis works on (avoids starting the same analysis twice). */
   private readonly computing = new Map<string, number>();
   private readonly cache = new WorkspaceCache();
+  private readonly members = new Map<string, MembersState>();
+  private readonly usages = new UsageTracker(() => this.config().get<number>('refreshDelay', 1000));
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly retries = new Map<string, number>();
   private readonly output = vscode.window.createOutputChannel('IntelliJ Java/Kotlin Navigation');
@@ -54,10 +83,14 @@ class Controller implements vscode.Disposable {
       this.hoverType,
       vscode.commands.registerCommand(OPEN_CMD, (t: Target) => openTarget(t)),
       vscode.commands.registerCommand(PICK_CMD, (arg: { title: string; targets: Target[] }) => pickTarget(arg.title, arg.targets)),
+      vscode.commands.registerCommand(USAGES_CMD, (arg?: { uri: string; line: number; character: number }) => showUsages(arg)),
+      this.usages,
+      this.usages.onDidChange(() => this.inlayChanged.fire()),
       vscode.commands.registerCommand('intellijNav.goToImplementations', () => this.navigateFromCursor('down')),
       vscode.commands.registerCommand('intellijNav.goToSuper', () => this.navigateFromCursor('up')),
       vscode.commands.registerCommand('intellijNav.refresh', () => {
         this.cache.clear();
+        this.usages.clear();
         this.refreshAll(true);
       }),
       vscode.window.onDidChangeVisibleTextEditors(() => this.refreshAll(false)),
@@ -65,6 +98,9 @@ class Controller implements vscode.Disposable {
       vscode.workspace.onDidChangeTextDocument(e => {
         if (!this.isRelevant(e.document) || !e.contentChanges.length) return;
         const key = e.document.uri.toString();
+        // keep the hints next to their declarations until the next analysis
+        this.carryAlong(e);
+        this.usages.documentChanged(e.document.uri);
         // results of other files may depend on this one; stop work on the outdated version right away
         this.cache.documentChanged(e.document.uri);
         this.pending.get(key)?.cancel();
@@ -73,14 +109,15 @@ class Controller implements vscode.Disposable {
       // A save anywhere can change the hierarchy of the files on screen → recompute visible editors
       vscode.workspace.onDidSaveTextDocument(d => {
         if (this.isRelevant(d)) {
-          this.state.clear();
-          this.refreshAll(false);
+          this.usages.invalidateAll();
+          this.refreshAll(true);
         }
       }),
       vscode.workspace.onDidCloseTextDocument(d => this.forget(d.uri.toString())),
       vscode.workspace.onDidChangeConfiguration(e => {
         if (e.affectsConfiguration('intellijNav')) {
           this.cache.clear();
+          this.usages.clear();
           this.refreshAll(true);
           this.inlayChanged.fire();
         }
@@ -92,13 +129,20 @@ class Controller implements vscode.Disposable {
       ),
       vscode.languages.registerCodeLensProvider(
         [{ language: 'java' }, { language: 'kotlin' }],
-        { onDidChangeCodeLenses: this.inlayChanged.event, provideCodeLenses: doc => this.codeLenses(doc) },
+        {
+          onDidChangeCodeLenses: this.inlayChanged.event,
+          provideCodeLenses: doc => this.codeLenses(doc),
+          resolveCodeLens: lens => this.resolveCodeLens(lens),
+        },
       ),
       vscode.window.onDidChangeTextEditorSelection(e => this.onSelection(e)),
     );
     // Files changed outside the editor (git checkout, build, other tools)
     const watcher = vscode.workspace.createFileSystemWatcher('**/*.{java,kt,kts}');
-    const external = (uri: vscode.Uri) => this.cache.documentChanged(uri);
+    const external = (uri: vscode.Uri) => {
+      this.cache.documentChanged(uri);
+      this.usages.invalidateAll();
+    };
     this.disposables.push(watcher, watcher.onDidCreate(external), watcher.onDidChange(external), watcher.onDidDelete(external));
     this.refreshAll(false);
   }
@@ -109,7 +153,13 @@ class Controller implements vscode.Disposable {
 
   markersInfo(uri: vscode.Uri): { version: number; markers: Marker[]; ms?: number } | undefined {
     const st = this.state.get(uri.toString());
-    return st && { version: st.version, markers: st.markers, ms: st.ms };
+    return st?.exact ? { version: st.version, markers: st.markers, ms: st.ms } : undefined;
+  }
+
+  usagesInfo(uri: vscode.Uri): { counts: Record<string, number | undefined>; requests: number } {
+    const counts: Record<string, number | undefined> = {};
+    for (const m of this.members.get(uri.toString())?.members ?? []) counts[m.key] = this.usages.get(uri, m.key)?.count;
+    return { counts, requests: this.usages.requests };
   }
 
   dispose(): void {
@@ -129,7 +179,8 @@ class Controller implements vscode.Disposable {
   }
 
   private refreshAll(force: boolean): void {
-    if (force) this.state.clear();
+    // keep showing the old results while the new analysis runs
+    if (force) for (const st of this.state.values()) st.exact = false;
     for (const e of vscode.window.visibleTextEditors) {
       if (this.isRelevant(e.document)) this.schedule(e.document, 0);
       else this.clear(e);
@@ -139,6 +190,8 @@ class Controller implements vscode.Disposable {
   private forget(key: string): void {
     this.state.delete(key);
     this.partial.delete(key);
+    this.members.delete(key);
+    this.usages.forget(vscode.Uri.parse(key));
     this.pending.get(key)?.cancel();
     this.pending.delete(key);
     clearTimeout(this.timers.get(key));
@@ -153,7 +206,7 @@ class Controller implements vscode.Disposable {
     }
     const key = doc.uri.toString();
     const cached = this.state.get(key);
-    if (cached && cached.version === doc.version) {
+    if (cached && cached.exact && cached.version === doc.version) {
       for (const e of editorsFor(doc)) this.render(e, cached.markers);
       return;
     }
@@ -173,6 +226,54 @@ class Controller implements vscode.Disposable {
     const pt = this.partial.get(key);
     if (pt && pt.version === doc.version) return pt.markers;
     return undefined;
+  }
+
+  /** Countable members for the current version (exact or carried along through edits). */
+  private currentMembers(doc: vscode.TextDocument): MembersState | undefined {
+    const ms = this.members.get(doc.uri.toString());
+    return ms && ms.version === doc.version ? ms : undefined;
+  }
+
+  /** Move stored results along with an edit instead of hiding them until the next analysis. */
+  private carryAlong(e: vscode.TextDocumentChangeEvent): void {
+    const key = e.document.uri.toString();
+    const version = e.document.version;
+    const changes: TextChange[] = e.contentChanges.map(c => ({ start: c.range.start, end: c.range.end, text: c.text }));
+    const mapRange = (r: vscode.Range): vscode.Range | undefined => {
+      const s = mapPositionAll(r.start, changes);
+      const en = mapPositionAll(r.end, changes);
+      return s && en ? new vscode.Range(s.line, s.character, en.line, en.character) : undefined;
+    };
+    const mapTarget = (t: Target): Target => {
+      if (t.uri !== key) return t;
+      const p = mapPositionAll({ line: t.line, character: t.character }, changes);
+      return p ? { ...t, line: p.line, character: p.character } : t;
+    };
+    for (const map of [this.state, this.partial]) {
+      const st = map.get(key);
+      if (!st || st.version === version) continue;
+      const markers: Marker[] = [];
+      for (const m of st.markers) {
+        const range = mapRange(m.range);
+        if (!range) continue;
+        markers.push({
+          ...m,
+          range,
+          up: m.up && { ...m.up, targets: m.up.targets.map(mapTarget) },
+          down: m.down && { ...m.down, targets: m.down.targets.map(mapTarget) },
+        });
+      }
+      map.set(key, { ...st, version, markers, exact: false });
+    }
+    const ms = this.members.get(key);
+    if (ms && ms.version !== version) {
+      const members: Member[] = [];
+      for (const m of ms.members) {
+        const range = mapRange(m.range);
+        if (range) members.push({ ...m, range });
+      }
+      this.members.set(key, { version, exact: false, members });
+    }
   }
 
   /** Line in the middle of the visible area of the (first) editor showing `doc`. */
@@ -199,7 +300,7 @@ class Controller implements vscode.Disposable {
           partialTimer = undefined;
           if (cts.token.isCancellationRequested || doc.version !== version) return;
           const markers = [...found].sort((a, b) => a.range.start.line - b.range.start.line);
-          this.partial.set(key, { version, markers });
+          this.partial.set(key, { version, markers, exact: true });
           for (const e of editorsFor(doc)) this.render(e, markers);
           this.inlayChanged.fire();
         }, 150);
@@ -209,13 +310,21 @@ class Controller implements vscode.Disposable {
         this.config().get<number>('maxConcurrentRequests', 4),
         this.config().get<boolean>('showOnTypes', true),
         this.cache,
-        { focusLine: this.focusLine(doc), onPartial },
+        {
+          focusLine: this.focusLine(doc),
+          onPartial,
+          onMembers: members => {
+            if (cts.token.isCancellationRequested || doc.version !== version) return;
+            this.members.set(key, { version, exact: true, members });
+            this.inlayChanged.fire();
+          },
+        },
       );
       const markers = await analyzer.analyze(doc);
       if (cts.token.isCancellationRequested || doc.version !== version) return;
       this.retries.delete(key);
       this.partial.delete(key);
-      this.state.set(key, { version, markers, ms: Date.now() - started });
+      this.state.set(key, { version, markers, exact: true, ms: Date.now() - started });
       for (const e of editorsFor(doc)) this.render(e, markers);
       this.inlayChanged.fire();
       this.output.appendLine(`${vscode.workspace.asRelativePath(doc.uri)}: ${markers.length} markers in ${Date.now() - started} ms`);
@@ -254,26 +363,51 @@ class Controller implements vscode.Disposable {
 
   private inlayHints(doc: vscode.TextDocument, range: vscode.Range): vscode.InlayHint[] {
     if (!this.isRelevant(doc) || !this.config().get<boolean>('inlayHints', true)) return [];
-    const markers = this.current(doc);
-    if (!markers) return [];
-    const hints: vscode.InlayHint[] = [];
-    for (const m of markers) {
+    const inRange = (line: number) => line >= range.start.line && line <= range.end.line;
+    const byLine = new Map<number, { marker?: Marker; member?: Member }>();
+    for (const m of this.current(doc) ?? []) {
+      if (inRange(m.range.start.line)) byLine.set(m.range.start.line, { marker: m });
+    }
+    const showUsages = this.config().get<boolean>('usages', true);
+    const ms = showUsages ? this.currentMembers(doc) : undefined;
+    const visibleMembers: Member[] = [];
+    for (const m of ms?.members ?? []) {
       const line = m.range.start.line;
-      if (line < range.start.line || line > range.end.line) continue;
+      if (!inRange(line)) continue;
+      visibleMembers.push(m);
+      const slot = byLine.get(line) ?? {};
+      slot.member ??= m;
+      byLine.set(line, slot);
+    }
+    // count usages of what is on screen (lazily, in the background)
+    if (ms?.exact && visibleMembers.length) this.usages.ensure(doc, visibleMembers);
+
+    const hints: vscode.InlayHint[] = [];
+    for (const [line, { marker, member }] of [...byLine].sort((a, b) => a[0] - b[0])) {
       const parts: vscode.InlayHintLabelPart[] = [];
+      const count = member && this.usages.get(doc.uri, member.key)?.count;
+      if (member && count !== undefined) {
+        const part = new vscode.InlayHintLabelPart(usageLabel(count));
+        part.tooltip = count ? `Show usages of ${member.name}` : `${member.name} is not used`;
+        if (count) {
+          const p = member.range.start;
+          part.command = { title: 'Show usages', command: USAGES_CMD, arguments: [{ uri: doc.uri.toString(), line: p.line, character: p.character }] };
+        }
+        parts.push(part);
+      }
       for (const dir of ['up', 'down'] as const) {
-        const nav = m[dir];
-        if (!nav) continue;
+        const nav = marker?.[dir];
+        if (!marker || !nav) continue;
         if (parts.length) parts.push(new vscode.InlayHintLabelPart('  '));
-        const part = new vscode.InlayHintLabelPart(inlayLabel(m, dir));
-        const title = titleFor(m, dir);
+        const part = new vscode.InlayHintLabelPart(inlayLabel(marker, dir));
+        const title = titleFor(marker, dir);
         part.tooltip = `${title} ${nav.targets.map(t => t.label).join(', ')} — click to navigate`;
         part.command = { title, command: PICK_CMD, arguments: [{ title, targets: nav.targets }] };
         parts.push(part);
       }
+      if (!parts.length || line >= doc.lineCount) continue;
       const text = doc.lineAt(line).text;
-      const end = new vscode.Position(line, text.trimEnd().length);
-      const hint = new vscode.InlayHint(end, parts);
+      const hint = new vscode.InlayHint(new vscode.Position(line, text.trimEnd().length), parts);
       hint.paddingLeft = true;
       hints.push(hint);
     }
@@ -283,10 +417,12 @@ class Controller implements vscode.Disposable {
   /** Optional CodeLens above the declaration – the only variant VS Code lets you trigger with a plain click. */
   private codeLenses(doc: vscode.TextDocument): vscode.CodeLens[] {
     if (!this.isRelevant(doc) || !this.config().get<boolean>('codeLens', false)) return [];
-    const markers = this.current(doc);
-    if (!markers) return [];
     const lenses: vscode.CodeLens[] = [];
-    for (const m of markers) {
+    if (this.config().get<boolean>('usages', true)) {
+      const ms = this.currentMembers(doc);
+      if (ms?.exact) for (const m of ms.members) lenses.push(new UsageLens(doc, m));
+    }
+    for (const m of this.current(doc) ?? []) {
       for (const dir of ['up', 'down'] as const) {
         const nav = m[dir];
         if (!nav) continue;
@@ -302,6 +438,16 @@ class Controller implements vscode.Disposable {
       }
     }
     return lenses;
+  }
+
+  private async resolveCodeLens(lens: vscode.CodeLens): Promise<vscode.CodeLens> {
+    if (!(lens instanceof UsageLens) || lens.command) return lens;
+    const count = (await this.usages.countNow(lens.doc, lens.member)) ?? 0;
+    const p = lens.member.range.start;
+    lens.command = count
+      ? { title: usageLabel(count), command: USAGES_CMD, arguments: [{ uri: lens.doc.uri.toString(), line: p.line, character: p.character }] }
+      : { title: usageLabel(0), command: '' };
+    return lens;
   }
 
   // ------------------------------------------------------------ click on the line number
@@ -441,6 +587,38 @@ async function pickTarget(title: string, targets: Target[]): Promise<void> {
     matchOnDetail: true,
   });
   if (picked) await openTarget(picked.target);
+}
+
+/**
+ * IntelliJ's "Show Usages": one usage → jump there, several → VS Code's references peek.
+ * Without argument it works on the symbol under the cursor.
+ */
+async function showUsages(arg?: { uri: string; line: number; character: number }): Promise<void> {
+  let uri: vscode.Uri;
+  let pos: vscode.Position;
+  if (arg) {
+    uri = vscode.Uri.parse(arg.uri);
+    pos = new vscode.Position(arg.line, arg.character);
+  } else {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return;
+    uri = editor.document.uri;
+    pos = editor.document.getWordRangeAtPosition(editor.selection.active)?.start ?? editor.selection.active;
+  }
+  const usages = await findUsages(uri, pos);
+  if (usages.length === 0) {
+    vscode.window.setStatusBarMessage('No usages found', 3000);
+    return;
+  }
+  if (usages.length === 1) {
+    await vscode.window.showTextDocument(usages[0].uri, { selection: usages[0].range, preview: true });
+    return;
+  }
+  // make sure the declaring file is the active editor (the peek view opens there)
+  if (vscode.window.activeTextEditor?.document.uri.toString() !== uri.toString()) {
+    await vscode.window.showTextDocument(uri, { selection: new vscode.Range(pos, pos), preview: true });
+  }
+  await vscode.commands.executeCommand('editor.action.showReferences', uri, pos, usages);
 }
 
 function editorsFor(doc: vscode.TextDocument): vscode.TextEditor[] {

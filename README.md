@@ -19,8 +19,8 @@
 </p>
 
 Miss IntelliJ's *"1 implementation"* hints and the jump between an interface and its implementations?
-This extension brings exactly that to VS Code: every interface, class and method gets a small hint showing
-where it is implemented, overridden or inherited from — and one **⌘/Ctrl + Click** takes you there.
+This extension brings exactly that to VS Code: every interface, class, method and field gets a small hint showing
+how often it is used and where it is implemented, overridden or inherited from — and one **⌘/Ctrl + Click** takes you there.
 
 It is made to work together with JetBrains' official
 [Java and Kotlin by IntelliJ IDEA](https://marketplace.visualstudio.com/items?itemName=JetBrains.intellij-server)
@@ -32,6 +32,7 @@ extension, but it works with **any** Java/Kotlin language server (Red Hat Java, 
 
   | Hint | Meaning |
   |---|---|
+  | `7 usages` / `no usages` | how often a class, method or field is used — click to see the usages |
   | `2 implementations` | interface / abstract method is implemented in 2 places |
   | `3 overrides` | method is overridden in 3 subclasses |
   | `1 inheritor` | class is extended once |
@@ -40,10 +41,14 @@ extension, but it works with **any** Java/Kotlin language server (Red Hat Java, 
 
 - **⌘ + Click** (macOS) / **Ctrl + Click** (Windows, Linux) on a hint:
   one target → jump straight there; several targets → a picker like IntelliJ's *"Choose Implementation"*.
+- **Usages** like IntelliJ's code vision: counted only for what is on screen, refreshed when you pause typing.
+  ⌘/Ctrl + Click → VS Code's references peek (one usage → jump straight there). Test methods (`@Test`, `@BeforeEach`, …)
+  and `main` get no count, as in IntelliJ.
 - **Hover** a method or type name → popup with clickable links to all targets.
 - **Whole hierarchy**: walks up through superclasses and super-interfaces, matching overloads by parameter types.
 - **Keyboard commands** for IntelliJ's *Go to Implementation* (`Ctrl+Alt+B`) and *Go to Super Method* (`Ctrl+U`) — see below.
 - Optional **CodeLens** (plain click instead of ⌘/Ctrl + Click) and optional **line-number click**.
+- **Stable while typing**: hints move along with your code and are refreshed when you pause.
 - Lightweight: only asks the language server via VS Code's standard APIs, caches per file version
   and refreshes after edits and saves.
 
@@ -61,6 +66,7 @@ Hints appear as soon as the language server has finished indexing.
 | What | How |
 |---|---|
 | Jump to implementation / super method | **⌘/Ctrl + Click** the hint at the end of the line |
+| Show usages | **⌘/Ctrl + Click** `N usages`, or run *IntelliJ Nav: Show Usages* on the symbol under the cursor |
 | See all targets | **Hover** the method or type name |
 | Plain click instead | enable `intellijNav.codeLens` |
 | Keyboard | run *IntelliJ Nav: Go to Implementation(s)* / *IntelliJ Nav: Go to Super Method* from the command palette or bind a key |
@@ -70,7 +76,8 @@ IntelliJ-like key bindings (add to your `keybindings.json`):
 ```jsonc
 [
   { "key": "ctrl+alt+b", "command": "intellijNav.goToImplementations", "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
-  { "key": "ctrl+u",     "command": "intellijNav.goToSuper",           "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" }
+  { "key": "ctrl+u",     "command": "intellijNav.goToSuper",           "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
+  { "key": "alt+f7",     "command": "intellijNav.showUsages",          "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" }
 ]
 ```
 
@@ -81,6 +88,7 @@ IntelliJ-like key bindings (add to your `keybindings.json`):
 | `intellijNav.enabled` | `true` | Turn the extension on/off |
 | `intellijNav.languages` | `["java", "kotlin"]` | Language IDs to analyse |
 | `intellijNav.inlayHints` | `true` | Show the ⌘/Ctrl + clickable hints at the end of declarations |
+| `intellijNav.usages` | `true` | Show usage counts (`7 usages`) for classes, methods and fields |
 | `intellijNav.codeLens` | `false` | Show the same links as CodeLens above declarations (plain click, uses an extra line) |
 | `intellijNav.clickLineNumber` | `false` | Clicking the line number of a declaration navigates instead of selecting the line |
 | `intellijNav.showOnTypes` | `true` | Also show hints on class / interface declarations |
@@ -93,6 +101,7 @@ IntelliJ-like key bindings (add to your `keybindings.json`):
 |---|---|
 | IntelliJ Nav: Go to Implementation(s) / Overriding Members | `intellijNav.goToImplementations` |
 | IntelliJ Nav: Go to Super Method / Interface | `intellijNav.goToSuper` |
+| IntelliJ Nav: Show Usages | `intellijNav.showUsages` |
 | IntelliJ Nav: Refresh Navigation Hints | `intellijNav.refresh` |
 
 ## How it works
@@ -108,6 +117,9 @@ For every Java/Kotlin file in a visible editor the extension asks the active lan
    `extends` / `implements` (Kotlin `:`) clause with *Go to Definition*. Super methods are matched by name
    and parameter types (generic type variables such as `T` match any type, Kotlin `Any`/`Int`/… match
    Java `Object`/`int`/…).
+
+4. **Usages** via *Find References* — only for members on screen (at most two searches at a time),
+   minus the declaration itself. Counts are refreshed after you pause typing in the file and after saves.
 
 Results for other files are cached and only invalidated when those files change, so re-analysing the file
 you are typing in is almost free. Members closest to what's on screen are analysed first and hints appear
