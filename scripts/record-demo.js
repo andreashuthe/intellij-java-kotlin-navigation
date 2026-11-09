@@ -196,7 +196,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const demoStart = Date.now();
 
   // 1) Overview
-  await caption('IntelliJ-style hints for implementations, overrides & super methods');
+  await caption('IntelliJ-style hints: usages, implementations & super methods');
   await sleep(2600);
 
   // 2) Interface method → implementation
@@ -233,6 +233,27 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await caption('Or hover a member name');
   await moveTo(await box('public void flush();', 'flush'));
   await sleep(2800);
+
+  // 7) Usages
+  await caption('Usages, too – ⌘/Ctrl + Click to see them');
+  const row = await w.evaluate(() => {
+    const el = [...document.querySelectorAll('.explorer-folders-view .monaco-list-row')].find(r => r.textContent.trim() === 'EntityService.java');
+    const b = el.getBoundingClientRect();
+    return { x: b.x + 60, y: b.y + b.height / 2 };
+  });
+  await moveTo(row, 30);
+  await sleep(250);
+  await w.mouse.click(row.x, row.y);
+  for (let i = 0; i < 40; i++) {
+    const n = await w.evaluate(() => [...document.querySelectorAll('.view-line span')].filter(s => s.textContent.replace(/\u00a0/g, ' ').trim() === '4 usages').length);
+    if (n) break;
+    await sleep(150);
+  }
+  await sleep(1400);
+  await cmdClick(await box('private EntityRepository repository;', '4 usages'));
+  await sleep(3200);
+  await w.keyboard.press('Escape');
+  await sleep(600);
   await caption('');
   await sleep(600);
   const demoEnd = Date.now();

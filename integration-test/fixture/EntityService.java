@@ -4,8 +4,8 @@ public class EntityService {
     private EntityRepository repository;
     private int unused;
 
-    public EntityService(EntityRepository repository) {
-        this.repository = repository;
+    public EntityService(EntityRepository repo) {
+        this.repository = repo;
     }
 
     public boolean exists(Object o) {

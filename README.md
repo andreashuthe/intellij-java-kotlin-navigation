@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/demo.gif" width="960" alt="Demo: Cmd/Ctrl+Click on '1 implementation' jumps to the implementation, '↑ EntityRepository' jumps back to the interface, several targets open a picker">
+  <img src="docs/demo.gif" width="960" alt="Demo: usage counts and navigation hints; Cmd/Ctrl+Click on '1 implementation' jumps to the implementation, '↑ EntityRepository' jumps back to the interface, several targets open a picker, Cmd/Ctrl+Click on '4 usages' shows the usages">
 </p>
 
 Miss IntelliJ's *"1 implementation"* hints and the jump between an interface and its implementations?
