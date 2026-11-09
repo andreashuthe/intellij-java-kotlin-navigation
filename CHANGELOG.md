@@ -8,6 +8,8 @@ and uses it as the GitHub release notes.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-09
+
 ### Added
 - **Method Hierarchy** (IntelliJ's ⌘⇧H): tree view in the Explorer from the top-most type declaring the method
   down to all subtypes, each marked *defines* / *abstract* / *inherits*; click to open. Context menu and command palette.
