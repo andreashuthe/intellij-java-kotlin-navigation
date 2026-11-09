@@ -118,5 +118,33 @@ exports.run = async () => {
   await vscode.commands.executeCommand('intellijNav.previousMember');
   assert.equal(svcEditor.selection.active.line + 1, 7);
 
+  // Method Hierarchy (IntelliJ ⌘⇧H)
+  const treeLines = h => {
+    const out = [];
+    const walk = (n, d) => {
+      out.push(`${'  '.repeat(d)}${n.name} ${n.method ? (n.method.abstract ? 'abstract' : 'defines') : 'inherits'}${n.current ? ' *' : ''}`);
+      n.children.forEach(c => walk(c, d + 1));
+    };
+    h.roots.forEach(r => walk(r, 0));
+    return out;
+  };
+  const hierarchyAt = async (file, lineText, word) => {
+    const d = await vscode.workspace.openTextDocument(fx(file));
+    await vscode.window.showTextDocument(d);
+    const line = d.getText().split('\n').findIndex(l => l.includes(lineText));
+    const h = await vscode.commands.executeCommand('intellijNav.showMethodHierarchy', d.uri, new vscode.Position(line, d.lineAt(line).text.indexOf(word) + 1));
+    if (h) console.log(`== method hierarchy ${file} ${h.signature}\n` + treeLines(h).join('\n'));
+    return h;
+  };
+  let h = await hierarchyAt('SpecialDao.java', 'public void flush()', 'flush');
+  assert.equal(h.signature, 'flush()');
+  assert.deepStrictEqual(treeLines(h), ['IRepository abstract', '  EntityRepository abstract', '    EntityRepositoryDao defines', '      SpecialDao defines *']);
+  h = await hierarchyAt('EntityRepositoryDao.java', 'public void merge(Object object)', 'merge');
+  assert.deepStrictEqual(treeLines(h), ['EntityRepository abstract', '  EntityRepositoryDao defines *', '    SpecialDao inherits']);
+  h = await hierarchyAt('FancyGreeter.kt', 'override fun greet', 'greet');
+  assert.deepStrictEqual(treeLines(h), ['Greeter abstract', '  BaseGreeter defines', '    FancyGreeter defines *', '  KotlinGreeter defines']);
+  assert.equal(await hierarchyAt('EntityService.java', 'private int unused', 'unused'), undefined, 'not on a method');
+  assert.equal(api.methodHierarchy(), undefined);
+
   console.log('\nALL INTEGRATION ASSERTIONS PASSED');
 };

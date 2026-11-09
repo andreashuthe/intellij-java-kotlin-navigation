@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import { Analyzer, EmptySymbolsError, Marker, Member, Target } from './analyzer';
+import { Analyzer, EmptySymbolsError, Marker, Member, MethodHierarchy, Target } from './analyzer';
 import { WorkspaceCache } from './cache';
+import { MethodHierarchyView } from './hierarchy';
 import { createTest, goToTest, jumpToMember } from './testnav';
 import { findUsages, UsageTracker } from './usages';
 import { mapPositionAll, TextChange, usageLabel } from './util';
@@ -42,6 +43,8 @@ export interface IntellijNavApi {
   markersInfo(uri: vscode.Uri): { version: number; markers: Marker[]; ms?: number } | undefined;
   /** Usage counts computed so far, by member key (tests / diagnostics). */
   usagesInfo(uri: vscode.Uri): { counts: Record<string, number | undefined>; requests: number };
+  /** Hierarchy last shown in the Method Hierarchy view. */
+  methodHierarchy(): MethodHierarchy | undefined;
 }
 
 export function activate(context: vscode.ExtensionContext): IntellijNavApi {
@@ -51,6 +54,7 @@ export function activate(context: vscode.ExtensionContext): IntellijNavApi {
     markers: uri => controller.markersFor(uri),
     markersInfo: uri => controller.markersInfo(uri),
     usagesInfo: uri => controller.usagesInfo(uri),
+    methodHierarchy: () => controller.hierarchy.current,
   };
 }
 
@@ -70,6 +74,9 @@ class Controller implements vscode.Disposable {
   private readonly computing = new Map<string, number>();
   private readonly cache = new WorkspaceCache();
   private readonly members = new Map<string, MembersState>();
+  readonly hierarchy = new MethodHierarchyView((doc, pos) =>
+    new Analyzer(new vscode.CancellationTokenSource().token, this.config().get<number>('maxConcurrentRequests', 4), true, this.cache).methodHierarchy(doc, pos),
+  );
   private readonly usages = new UsageTracker(() => this.config().get<number>('refreshDelay', 1000));
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly retries = new Map<string, number>();
@@ -87,6 +94,11 @@ class Controller implements vscode.Disposable {
       vscode.commands.registerCommand(USAGES_CMD, (arg?: { uri: string; line: number; character: number }) => showUsages(arg)),
       vscode.commands.registerCommand('intellijNav.goToTest', (uri?: vscode.Uri) => goToTest(uri instanceof vscode.Uri ? uri : undefined)),
       vscode.commands.registerCommand('intellijNav.createTest', (uri?: vscode.Uri) => createTest(uri instanceof vscode.Uri ? uri : undefined)),
+      this.hierarchy,
+      vscode.commands.registerCommand('intellijNav.showMethodHierarchy', (uri?: vscode.Uri, pos?: vscode.Position) =>
+        this.hierarchy.show(uri instanceof vscode.Uri ? uri : undefined, pos instanceof vscode.Position ? pos : undefined),
+      ),
+      vscode.commands.registerCommand('intellijNav.refreshMethodHierarchy', () => this.hierarchy.refresh()),
       vscode.commands.registerCommand('intellijNav.nextMember', () => jumpToMember(1)),
       vscode.commands.registerCommand('intellijNav.previousMember', () => jumpToMember(-1)),
       this.usages,

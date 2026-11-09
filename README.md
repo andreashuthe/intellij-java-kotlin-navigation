@@ -50,6 +50,8 @@ extension, but it works with **any** Java/Kotlin language server (Red Hat Java, 
   (also `…Tests`, `…IT`, `…IntegrationTest`, `Test…`), preferring the same package under `src/test/…`.
   No test yet? *Create New Test…* creates it in the matching test folder with package and a JUnit 4/5 skeleton
   (detected from `pom.xml` / `build.gradle`). Also in the editor's context menu.
+- **Method Hierarchy** like IntelliJ's ⌘⇧H: a tree in the Explorer starting at the top-most type that declares the
+  method, with every subtype marked as **defines**, **abstract** or **inherits** — click to jump there.
 - **Next / Previous Member** like IntelliJ's *Next/Previous Method*: jump between classes, fields, constructors and methods.
 - **Keyboard commands** for IntelliJ's *Go to Implementation* (`Ctrl+Alt+B`) and *Go to Super Method* (`Ctrl+U`) — see below.
 - Optional **CodeLens** (plain click instead of ⌘/Ctrl + Click) and optional **line-number click**.
@@ -75,6 +77,7 @@ Hints appear as soon as the language server has finished indexing.
 | Test ↔ class under test | *IntelliJ Nav: Go to Test / Test Subject* (context menu or command palette) |
 | Create a test | *Create New Test…* in the test picker, or *IntelliJ Nav: Create Test* |
 | Next / previous declaration | *IntelliJ Nav: Next Member* / *Previous Member* |
+| Method hierarchy | *IntelliJ Nav: Method Hierarchy* on a method (context menu or command palette) |
 | See all targets | **Hover** the method or type name |
 | Plain click instead | enable `intellijNav.codeLens` |
 | Keyboard | run *IntelliJ Nav: Go to Implementation(s)* / *IntelliJ Nav: Go to Super Method* from the command palette or bind a key |
@@ -85,6 +88,7 @@ VS Code or macOS). IntelliJ-like suggestions for your `keybindings.json` — adj
 ```jsonc
 [
   { "key": "cmd+shift+t",    "command": "intellijNav.goToTest",       "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
+  { "key": "cmd+shift+h",    "command": "intellijNav.showMethodHierarchy", "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
   { "key": "ctrl+alt+down",  "command": "intellijNav.nextMember",     "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
   { "key": "ctrl+alt+up",    "command": "intellijNav.previousMember", "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
   { "key": "ctrl+alt+b", "command": "intellijNav.goToImplementations", "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
@@ -118,9 +122,11 @@ VS Code or macOS). IntelliJ-like suggestions for your `keybindings.json` — adj
 | IntelliJ Nav: Create Test | `intellijNav.createTest` |
 | IntelliJ Nav: Next Member (Method / Field / Class) | `intellijNav.nextMember` |
 | IntelliJ Nav: Previous Member (Method / Field / Class) | `intellijNav.previousMember` |
+| IntelliJ Nav: Method Hierarchy | `intellijNav.showMethodHierarchy` |
 | IntelliJ Nav: Refresh Navigation Hints | `intellijNav.refresh` |
 
-On Windows/Linux use `ctrl+shift+t` instead of `cmd+shift+t`. For IntelliJ's other shortcuts (⌘B, ⌥⌘B, ⌥F7, …) the
+On Windows/Linux use `ctrl+shift+t` / `ctrl+shift+h` instead of `cmd+shift+t` / `cmd+shift+h`. In Java/Kotlin
+editors these replace VS Code's *Reopen Closed Editor* and *Replace in Files* — pick other keys if you use those. For IntelliJ's other shortcuts (⌘B, ⌥⌘B, ⌥F7, …) the
 [IntelliJ IDEA Keybindings](https://marketplace.visualstudio.com/items?itemName=k--kato.intellij-idea-keybindings) extension
 maps them to VS Code's built-in commands.
 

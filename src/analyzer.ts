@@ -76,6 +76,27 @@ interface MethodInfo extends MethodSig {
 
 export class EmptySymbolsError extends Error {}
 
+/** One type in a method hierarchy (IntelliJ ⌘⇧H). */
+export interface HierarchyNode {
+  name: string;
+  /** Location of the type name */
+  uri: string;
+  line: number;
+  character: number;
+  isInterface: boolean;
+  /** The type's own declaration of the method, if it declares/overrides it (else it inherits it). */
+  method?: { line: number; character: number; abstract: boolean };
+  /** The type the hierarchy was opened from */
+  current: boolean;
+  children: HierarchyNode[];
+}
+
+export interface MethodHierarchy {
+  /** e.g. `flush()` or `save(Object, Long)` */
+  signature: string;
+  roots: HierarchyNode[];
+}
+
 export interface AnalyzeOptions {
   /** Line the user is looking at: members closest to it are analysed first. */
   focusLine?: number;
@@ -183,6 +204,99 @@ export class Analyzer {
       if (IMPLICITLY_USED.test(t)) return true;
     }
     return false;
+  }
+
+  /**
+   * Method hierarchy for the method at `pos`: starting at the top-most type(s) declaring the method,
+   * all subtypes as a tree, each marked as declaring (abstract or not) or inheriting the method.
+   */
+  async methodHierarchy(doc: vscode.TextDocument, pos: vscode.Position): Promise<MethodHierarchy | undefined> {
+    this.uri = doc.uri;
+    const symbols = await this.symbols(doc.uri, true);
+    this.docCache.set(doc.uri.toString(), Promise.resolve(doc));
+    const chain = enclosingChain(symbols, pos);
+    let mi = -1;
+    chain.forEach((s, i) => {
+      if (METHOD_KINDS.has(s.kind)) mi = i;
+    });
+    if (mi < 0) return undefined;
+    const method = chain[mi];
+    const typeSym = chain
+      .slice(0, mi)
+      .reverse()
+      .find(s => TYPE_KINDS.has(s.kind));
+    if (!typeSym) return undefined;
+    const sig = this.methodSig(doc, method);
+    const self: ResolvedType = { uri: doc.uri, symbol: typeSym, name: bareName(typeSym.name), isInterface: this.isInterface(doc, typeSym) };
+    const selfKey = keyOf(self.uri, self.symbol);
+
+    // 1) supertypes that declare the method; the top-most of them are the roots
+    const ancestors = await this.ancestors(doc.uri, typeSym, doc);
+    const declaring: ResolvedType[] = [];
+    for (const a of ancestors) if (findMatchingMethod(sig, await this.candidates(a))) declaring.push(a);
+    const declaringKeys = new Set(declaring.map(d => keyOf(d.uri, d.symbol)));
+    const roots: ResolvedType[] = [];
+    for (const d of declaring) {
+      const dDoc = await this.document(d.uri);
+      const up = dDoc ? await this.ancestors(d.uri, d.symbol, dDoc) : [];
+      if (!up.some(u => declaringKeys.has(keyOf(u.uri, u.symbol)))) roots.push(d);
+    }
+    if (!roots.length) roots.push(self);
+
+    // 2) every subtype of the roots
+    const nodes = new Map<string, ResolvedType>();
+    const add = (t: ResolvedType) => nodes.set(keyOf(t.uri, t.symbol), t);
+    roots.forEach(add);
+    add(self);
+    for (const r of roots) {
+      const subs = await this.implementations(r.uri, r.symbol.selectionRange.start, r.symbol.selectionRange, `T:${r.name}`, false);
+      for (const t of subs) {
+        const res = await this.resolveTypeAt(vscode.Uri.parse(t.uri), new vscode.Position(t.line, t.character));
+        if (res) add(res);
+      }
+    }
+
+    // 3) edges from each type's direct supertypes (within the hierarchy)
+    const parents = new Map<string, string[]>();
+    for (const [k, t] of nodes) {
+      const tDoc = await this.document(t.uri);
+      const direct = tDoc ? await this.directSupertypes(t.uri, t.symbol, tDoc) : [];
+      parents.set(
+        k,
+        direct.map(d => keyOf(d.uri, d.symbol)).filter(pk => pk !== k && nodes.has(pk)),
+      );
+    }
+
+    // 4) does each type declare the method itself?
+    const own = new Map<string, HierarchyNode['method']>();
+    for (const [k, t] of nodes) {
+      const m = findMatchingMethod(sig, await this.candidates(t));
+      if (m) own.set(k, { line: m.symbol.selectionRange.start.line, character: m.symbol.selectionRange.start.character, abstract: m.isAbstract });
+    }
+    if (!own.has(selfKey)) own.set(selfKey, { line: method.selectionRange.start.line, character: method.selectionRange.start.character, abstract: false });
+
+    const build = (k: string, path: Set<string>): HierarchyNode => {
+      const t = nodes.get(k)!;
+      const nextPath = new Set(path).add(k);
+      const children = [...nodes.keys()]
+        .filter(c => !nextPath.has(c) && parents.get(c)?.includes(k))
+        .map(c => build(c, nextPath))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return {
+        name: t.name,
+        uri: t.uri.toString(),
+        line: t.symbol.selectionRange.start.line,
+        character: t.symbol.selectionRange.start.character,
+        isInterface: t.isInterface,
+        method: own.get(k),
+        current: k === selfKey,
+        children,
+      };
+    };
+    // roots: declared roots plus any type whose supertypes are outside the hierarchy (e.g. unresolved library types)
+    const rootKeys = [...nodes.keys()].filter(k => !(parents.get(k) ?? []).length);
+    const signature = `${sig.name}(${(sig.params ?? []).join(', ')})`;
+    return { signature, roots: rootKeys.map(k => build(k, new Set())).sort((a, b) => a.name.localeCompare(b.name)) };
   }
 
   private text(doc: vscode.TextDocument): string {

@@ -40,7 +40,8 @@
     "go to implementation",
     "spring",
     "go to test",
-    "navigate to test"
+    "navigate to test",
+    "method hierarchy"
   ],
   "icon": "media/logo.png",
   "activationEvents": [
@@ -84,6 +85,17 @@
         "command": "intellijNav.previousMember",
         "title": "Previous Member (Method / Field / Class)",
         "category": "IntelliJ Nav"
+      },
+      {
+        "command": "intellijNav.showMethodHierarchy",
+        "title": "Method Hierarchy",
+        "category": "IntelliJ Nav"
+      },
+      {
+        "command": "intellijNav.refreshMethodHierarchy",
+        "title": "Refresh Method Hierarchy",
+        "category": "IntelliJ Nav",
+        "icon": "$(refresh)"
       },
       {
         "command": "intellijNav.refresh",
@@ -160,6 +172,11 @@
           "command": "intellijNav.showUsages",
           "when": "editorLangId =~ /^(java|kotlin)$/",
           "group": "navigation@91"
+        },
+        {
+          "command": "intellijNav.showMethodHierarchy",
+          "when": "editorLangId =~ /^(java|kotlin)$/",
+          "group": "navigation@92"
         }
       ],
       "commandPalette": [
@@ -190,6 +207,31 @@
         {
           "command": "intellijNav.goToSuper",
           "when": "editorLangId =~ /^(java|kotlin)$/"
+        },
+        {
+          "command": "intellijNav.showMethodHierarchy",
+          "when": "editorLangId =~ /^(java|kotlin)$/"
+        },
+        {
+          "command": "intellijNav.refreshMethodHierarchy",
+          "when": "intellijNav.hasMethodHierarchy"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "intellijNav.refreshMethodHierarchy",
+          "when": "view == intellijNav.methodHierarchy",
+          "group": "navigation"
+        }
+      ]
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "intellijNav.methodHierarchy",
+          "name": "Method Hierarchy",
+          "when": "intellijNav.hasMethodHierarchy",
+          "icon": "$(type-hierarchy-sub)"
         }
       ]
     }
