@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Analyzer, EmptySymbolsError, Marker, Member, Target } from './analyzer';
 import { WorkspaceCache } from './cache';
+import { createTest, goToTest, jumpToMember } from './testnav';
 import { findUsages, UsageTracker } from './usages';
 import { mapPositionAll, TextChange, usageLabel } from './util';
 
@@ -84,6 +85,10 @@ class Controller implements vscode.Disposable {
       vscode.commands.registerCommand(OPEN_CMD, (t: Target) => openTarget(t)),
       vscode.commands.registerCommand(PICK_CMD, (arg: { title: string; targets: Target[] }) => pickTarget(arg.title, arg.targets)),
       vscode.commands.registerCommand(USAGES_CMD, (arg?: { uri: string; line: number; character: number }) => showUsages(arg)),
+      vscode.commands.registerCommand('intellijNav.goToTest', (uri?: vscode.Uri) => goToTest(uri instanceof vscode.Uri ? uri : undefined)),
+      vscode.commands.registerCommand('intellijNav.createTest', (uri?: vscode.Uri) => createTest(uri instanceof vscode.Uri ? uri : undefined)),
+      vscode.commands.registerCommand('intellijNav.nextMember', () => jumpToMember(1)),
+      vscode.commands.registerCommand('intellijNav.previousMember', () => jumpToMember(-1)),
       this.usages,
       this.usages.onDidChange(() => this.inlayChanged.fire()),
       vscode.commands.registerCommand('intellijNav.goToImplementations', () => this.navigateFromCursor('down')),

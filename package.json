@@ -38,7 +38,9 @@
     "find references",
     "inlay hints",
     "go to implementation",
-    "spring"
+    "spring",
+    "go to test",
+    "navigate to test"
   ],
   "icon": "media/logo.png",
   "activationEvents": [
@@ -61,6 +63,26 @@
       {
         "command": "intellijNav.showUsages",
         "title": "Show Usages",
+        "category": "IntelliJ Nav"
+      },
+      {
+        "command": "intellijNav.goToTest",
+        "title": "Go to Test / Test Subject",
+        "category": "IntelliJ Nav"
+      },
+      {
+        "command": "intellijNav.createTest",
+        "title": "Create Test",
+        "category": "IntelliJ Nav"
+      },
+      {
+        "command": "intellijNav.nextMember",
+        "title": "Next Member (Method / Field / Class)",
+        "category": "IntelliJ Nav"
+      },
+      {
+        "command": "intellijNav.previousMember",
+        "title": "Previous Member (Method / Field / Class)",
         "category": "IntelliJ Nav"
       },
       {
@@ -126,6 +148,50 @@
           "description": "Maximum number of parallel language-server requests per file."
         }
       }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "intellijNav.goToTest",
+          "when": "editorLangId =~ /^(java|kotlin)$/",
+          "group": "navigation@90"
+        },
+        {
+          "command": "intellijNav.showUsages",
+          "when": "editorLangId =~ /^(java|kotlin)$/",
+          "group": "navigation@91"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "intellijNav.goToTest",
+          "when": "editorLangId =~ /^(java|kotlin)$/"
+        },
+        {
+          "command": "intellijNav.createTest",
+          "when": "editorLangId =~ /^(java|kotlin)$/"
+        },
+        {
+          "command": "intellijNav.nextMember",
+          "when": "editorLangId =~ /^(java|kotlin)$/"
+        },
+        {
+          "command": "intellijNav.previousMember",
+          "when": "editorLangId =~ /^(java|kotlin)$/"
+        },
+        {
+          "command": "intellijNav.showUsages",
+          "when": "editorLangId =~ /^(java|kotlin)$/"
+        },
+        {
+          "command": "intellijNav.goToImplementations",
+          "when": "editorLangId =~ /^(java|kotlin)$/"
+        },
+        {
+          "command": "intellijNav.goToSuper",
+          "when": "editorLangId =~ /^(java|kotlin)$/"
+        }
+      ]
     }
   },
   "scripts": {

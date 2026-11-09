@@ -78,5 +78,45 @@ exports.run = async () => {
   assert.deepStrictEqual(moved, ['5:1 usage', '6:4 usages', '7:no usages', '13:1 usage', '17:no usages']);
   await vscode.commands.executeCommand('workbench.action.files.revert');
 
+  // Go to Test / Test Subject
+  const shop = f => vscode.Uri.file(path.join(__dirname, 'fixture', 'shop', f));
+  const activeName = () => path.basename(vscode.window.activeTextEditor.document.uri.fsPath);
+  await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(shop('src/main/java/com/acme/shop/OrderService.java')));
+  await vscode.commands.executeCommand('intellijNav.goToTest');
+  assert.equal(activeName(), 'OrderServiceTest.java', 'subject → test');
+  await vscode.commands.executeCommand('intellijNav.goToTest');
+  assert.equal(activeName(), 'OrderService.java', 'test → subject');
+  // Create Test: src/main/java/… → src/test/java/…, package + JUnit 5 (from pom.xml)
+  const created = shop('src/test/java/com/acme/shop/PriceCalculatorTest.java');
+  try {
+    const uri = await vscode.commands.executeCommand('intellijNav.createTest', shop('src/main/java/com/acme/shop/PriceCalculator.java'));
+    assert.equal(uri.fsPath, created.fsPath);
+    const text = require('fs').readFileSync(created.fsPath, 'utf8');
+    console.log('== created PriceCalculatorTest.java\n' + text);
+    assert.match(text, /^package com\.acme\.shop;\n\nimport org\.junit\.jupiter\.api\.Test;\n\nclass PriceCalculatorTest \{/);
+    assert.equal(activeName(), 'PriceCalculatorTest.java');
+    assert.equal(vscode.window.activeTextEditor.selection.active.line, 8, 'cursor inside the new test method');
+    // and back from the new test to its subject
+    await vscode.commands.executeCommand('intellijNav.goToTest');
+    assert.equal(activeName(), 'PriceCalculator.java');
+  } finally {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+    require('fs').rmSync(created.fsPath, { force: true });
+  }
+
+  // Next / Previous Member: class, fields, constructor, methods
+  const svcEditor = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(fx('EntityService.java')));
+  svcEditor.selection = new vscode.Selection(0, 0, 0, 0);
+  const visited = [];
+  for (let i = 0; i < 7; i++) {
+    await vscode.commands.executeCommand('intellijNav.nextMember');
+    visited.push(svcEditor.selection.active.line + 1);
+  }
+  console.log('== next member lines: ' + visited.join(','));
+  assert.deepStrictEqual(visited, [3, 4, 5, 7, 11, 15, 15]);
+  await vscode.commands.executeCommand('intellijNav.previousMember');
+  await vscode.commands.executeCommand('intellijNav.previousMember');
+  assert.equal(svcEditor.selection.active.line + 1, 7);
+
   console.log('\nALL INTEGRATION ASSERTIONS PASSED');
 };

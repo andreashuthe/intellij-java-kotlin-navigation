@@ -10,6 +10,16 @@ and uses it as the GitHub release notes.
 
 ## [1.1.1] - 2026-11-09
 
+### Added
+- **Go to Test / Test Subject** (IntelliJ's ⌘⇧T): jumps between `Foo` and `FooTest` / `FooTests` / `FooIT` /
+  `FooIntegrationTest` / `TestFoo`, preferring the same package under `src/test/…` (picker if several match).
+- **Create Test**: creates `FooTest` in the matching test source folder (`src/main/…` → `src/test/…`) with package
+  and an empty JUnit 4/5 test (version detected from `pom.xml` / `build.gradle`), Java or Kotlin. Offered in the
+  picker when no test exists yet.
+- **Next / Previous Member**: jump between classes, fields, constructors and methods of the file.
+- *Go to Test* and *Show Usages* in the editor context menu; IntelliJ Nav commands only show up in the command
+  palette for Java/Kotlin files.
+
 ## [1.1.0] - 2026-11-09
 
 ### Added

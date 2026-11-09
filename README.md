@@ -46,6 +46,11 @@ extension, but it works with **any** Java/Kotlin language server (Red Hat Java, 
   and `main` get no count, as in IntelliJ.
 - **Hover** a method or type name → popup with clickable links to all targets.
 - **Whole hierarchy**: walks up through superclasses and super-interfaces, matching overloads by parameter types.
+- **Go to Test / Test Subject** like IntelliJ's ⌘⇧T: jumps between `OrderService` and `OrderServiceTest`
+  (also `…Tests`, `…IT`, `…IntegrationTest`, `Test…`), preferring the same package under `src/test/…`.
+  No test yet? *Create New Test…* creates it in the matching test folder with package and a JUnit 4/5 skeleton
+  (detected from `pom.xml` / `build.gradle`). Also in the editor's context menu.
+- **Next / Previous Member** like IntelliJ's *Next/Previous Method*: jump between classes, fields, constructors and methods.
 - **Keyboard commands** for IntelliJ's *Go to Implementation* (`Ctrl+Alt+B`) and *Go to Super Method* (`Ctrl+U`) — see below.
 - Optional **CodeLens** (plain click instead of ⌘/Ctrl + Click) and optional **line-number click**.
 - **Stable while typing**: hints move along with your code and are refreshed when you pause.
@@ -67,14 +72,21 @@ Hints appear as soon as the language server has finished indexing.
 |---|---|
 | Jump to implementation / super method | **⌘/Ctrl + Click** the hint at the end of the line |
 | Show usages | **⌘/Ctrl + Click** `N usages`, or run *IntelliJ Nav: Show Usages* on the symbol under the cursor |
+| Test ↔ class under test | *IntelliJ Nav: Go to Test / Test Subject* (context menu or command palette) |
+| Create a test | *Create New Test…* in the test picker, or *IntelliJ Nav: Create Test* |
+| Next / previous declaration | *IntelliJ Nav: Next Member* / *Previous Member* |
 | See all targets | **Hover** the method or type name |
 | Plain click instead | enable `intellijNav.codeLens` |
 | Keyboard | run *IntelliJ Nav: Go to Implementation(s)* / *IntelliJ Nav: Go to Super Method* from the command palette or bind a key |
 
-IntelliJ-like key bindings (add to your `keybindings.json`):
+The extension doesn't set key bindings by default (IntelliJ's ⌘⇧T, ⌃↑/⌃↓ and ⌥↑/⌥↓ are already used by
+VS Code or macOS). IntelliJ-like suggestions for your `keybindings.json` — adjust as you like:
 
 ```jsonc
 [
+  { "key": "cmd+shift+t",    "command": "intellijNav.goToTest",       "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
+  { "key": "ctrl+alt+down",  "command": "intellijNav.nextMember",     "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
+  { "key": "ctrl+alt+up",    "command": "intellijNav.previousMember", "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
   { "key": "ctrl+alt+b", "command": "intellijNav.goToImplementations", "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
   { "key": "ctrl+u",     "command": "intellijNav.goToSuper",           "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" },
   { "key": "alt+f7",     "command": "intellijNav.showUsages",          "when": "editorTextFocus && editorLangId =~ /^(java|kotlin)$/" }
@@ -102,7 +114,15 @@ IntelliJ-like key bindings (add to your `keybindings.json`):
 | IntelliJ Nav: Go to Implementation(s) / Overriding Members | `intellijNav.goToImplementations` |
 | IntelliJ Nav: Go to Super Method / Interface | `intellijNav.goToSuper` |
 | IntelliJ Nav: Show Usages | `intellijNav.showUsages` |
+| IntelliJ Nav: Go to Test / Test Subject | `intellijNav.goToTest` |
+| IntelliJ Nav: Create Test | `intellijNav.createTest` |
+| IntelliJ Nav: Next Member (Method / Field / Class) | `intellijNav.nextMember` |
+| IntelliJ Nav: Previous Member (Method / Field / Class) | `intellijNav.previousMember` |
 | IntelliJ Nav: Refresh Navigation Hints | `intellijNav.refresh` |
+
+On Windows/Linux use `ctrl+shift+t` instead of `cmd+shift+t`. For IntelliJ's other shortcuts (⌘B, ⌥⌘B, ⌥F7, …) the
+[IntelliJ IDEA Keybindings](https://marketplace.visualstudio.com/items?itemName=k--kato.intellij-idea-keybindings) extension
+maps them to VS Code's built-in commands.
 
 ## How it works
 

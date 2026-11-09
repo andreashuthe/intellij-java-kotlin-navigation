@@ -615,7 +615,7 @@ function enclosingChain(list: vscode.DocumentSymbol[], pos: vscode.Position): vs
 }
 
 /** Some servers return flat SymbolInformation[]; rebuild a tree from range containment. */
-function normalizeSymbols(r: (vscode.DocumentSymbol | vscode.SymbolInformation)[]): vscode.DocumentSymbol[] {
+export function normalizeSymbols(r: (vscode.DocumentSymbol | vscode.SymbolInformation)[]): vscode.DocumentSymbol[] {
   if (r.length === 0) return [];
   if ('selectionRange' in r[0]) return r as vscode.DocumentSymbol[];
   const infos = (r as vscode.SymbolInformation[])
