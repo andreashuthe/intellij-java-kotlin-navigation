@@ -8,6 +8,19 @@ and uses it as the GitHub release notes.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-13
+
+### Fixed
+- **Usage counts with Red Hat's Language Support for Java**: declarations of overriding / implementing methods (and
+  constructors) are no longer counted as usages – Red Hat's server reports them as references, IntelliJ doesn't.
+- **Method Hierarchy**: anonymous classes (`new Foo() { … }`) now appear under their superclass, labeled like IntelliJ
+  ("Anonymous in createStyle(…) in FooTest"), instead of as extra roots.
+
+### Changed
+- Supertypes from libraries (class files / decompiled sources) no longer hold up the analysis: if the language server
+  needs more than 2 s for one (Red Hat: ~10 s for the first JDK class), the markers are shown without it and completed
+  as soon as it is loaded.
+
 ## [1.2.0] - 2026-11-09
 
 ### Added

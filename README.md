@@ -68,6 +68,14 @@ extension, but it works with **any** Java/Kotlin language server (Red Hat Java, 
 
 Hints appear as soon as the language server has finished indexing.
 
+Tested with **Red Hat's Language Support for Java** (also part of Microsoft's *Extension Pack for Java*): all hints,
+usages, Go to Test, Method Hierarchy and hovers work. Red Hat's server is Java-only – for Kotlin you still need
+JetBrains' server or another Kotlin language server. Red Hat shows its own reference / implementation CodeLens;
+turn them off to avoid duplicate hints:
+
+    "java.referencesCodeLens.enabled": false,
+    "java.implementationCodeLens": "none"
+
 ## Usage
 
 | What | How |

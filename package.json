@@ -1,7 +1,7 @@
 {
   "name": "intellij-java-kotlin-navigation",
   "displayName": "IntelliJ Java/Kotlin Navigation",
-  "description": "IntelliJ-style usages and interface / implementation / override navigation ('7 usages', '1 implementation', '↑ Interface' hints) in Java and Kotlin. Works on top of any language server (e.g. JetBrains' 'Java and Kotlin by IntelliJ IDEA').",
+  "description": "IntelliJ-style usages and interface / implementation / override navigation ('7 usages', '1 implementation', '↑ Interface' hints) in Java and Kotlin. Works on top of any language server (JetBrains' 'Java and Kotlin by IntelliJ IDEA', Red Hat's 'Language Support for Java.",
   "version": "1.2.0",
   "publisher": "andreashuthe",
   "author": "Andreas Huth",
@@ -28,6 +28,7 @@
   ],
   "keywords": [
     "intellij",
+    "red hat java",
     "java",
     "kotlin",
     "implementation",
