@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { Member } from './analyzer';
-import { createLimiter } from './util';
+import { createLimiter, isDeclarationSite } from './util';
 
 interface Entry {
   count?: number;
@@ -161,9 +161,35 @@ export async function findUsages(uri: vscode.Uri, pos: vscode.Position): Promise
   const locs =
     (await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>('vscode.executeReferenceProvider', uri, pos)) ?? [];
   const key = uri.toString();
-  return locs
+  const refs = locs
     .map(l => ('targetUri' in l ? new vscode.Location(l.targetUri, l.targetSelectionRange ?? l.targetRange) : l))
     .filter(l => !(l.uri.toString() === key && l.range.contains(pos)));
+  // drop declarations of implementing/overriding methods (reported as references by e.g. Red Hat's Java server)
+  const lines = new Map<string, Promise<string[] | undefined>>();
+  const linesOf = (u: vscode.Uri) => {
+    const k = u.toString();
+    if (!lines.has(k)) lines.set(k, readLines(u));
+    return lines.get(k)!;
+  };
+  const keep = await Promise.all(
+    refs.map(async l => {
+      if (l.range.start.line !== l.range.end.line) return true;
+      const text = (await linesOf(l.uri))?.[l.range.start.line];
+      return text === undefined || !isDeclarationSite(text, l.range.start.character, l.range.end.character);
+    }),
+  );
+  return refs.filter((_, i) => keep[i]);
+}
+
+/** Lines of an open document, or of the file on disk (without opening it, so no didOpen for the language server). */
+async function readLines(uri: vscode.Uri): Promise<string[] | undefined> {
+  const open = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
+  if (open) return open.getText().split(/\r?\n/);
+  try {
+    return new TextDecoder().decode(await vscode.workspace.fs.readFile(uri)).split(/\r?\n/);
+  } catch {
+    return undefined;
+  }
 }
 
 async function countUsages(uri: vscode.Uri, m: Member): Promise<number> {

@@ -367,6 +367,7 @@ class Controller implements vscode.Disposable {
         {
           focusLine: this.focusLine(doc),
           onPartial,
+          libraryTimeout: 2000,
           onMembers: members => {
             if (cts.token.isCancellationRequested || doc.version !== version) return;
             this.members.set(key, { version, exact: true, members });
@@ -381,6 +382,10 @@ class Controller implements vscode.Disposable {
       this.state.set(key, { version, markers, exact: true, ms: Date.now() - started });
       this.inlayChanged.fire();
       this.output.appendLine(`${vscode.workspace.asRelativePath(doc.uri)}: ${markers.length} markers in ${Date.now() - started} ms`);
+      // a library supertype took too long (e.g. Red Hat decompiling a JDK class) → add its markers once it is loaded
+      void analyzer.lateLibraries?.then(resolved => {
+        if (resolved && this.state.get(key)?.version === version && doc.version === version && !this.pending.has(key)) void this.compute(doc);
+      });
     } catch (err) {
       if (cts.token.isCancellationRequested) return;
       // Language server still starting / indexing → retry with back-off

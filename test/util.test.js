@@ -76,3 +76,28 @@ test('usageLabel uses IntelliJ wording', () => {
   assert.equal(usageLabel(1), '1 usage');
   assert.equal(usageLabel(7), '7 usages');
 });
+
+const { isDeclarationSite } = require('../out/util');
+test('declaration sites vs. calls (references of overriding methods)', () => {
+  const at = (line, name) => { const i = line.indexOf(name); return isDeclarationSite(line, i, i + name.length); };
+  // declarations
+  assert.equal(at('    public boolean contains(Object object) {', 'contains'), true);
+  assert.equal(at('    @Override public void flush() {', 'flush'), true);
+  assert.equal(at('    public <T> List<T> load(Class<T> c) {', 'load'), true);
+  assert.equal(at('    int[] values() {', 'values'), true);
+  assert.equal(at('    override fun greet(who: Any, times: Int): String {', 'greet'), true);
+  assert.equal(at('fun String.shout() = uppercase()', 'shout'), true);
+  assert.equal(at('    def total(self):', 'total'), true);
+  assert.equal(at('func (o *Order) Total() float64 {', 'Total'), true);
+  // calls
+  assert.equal(at('        return repository.contains(o);', 'contains'), false);
+  assert.equal(at('        if (!exists(o)) {', 'exists'), false);
+  assert.equal(at('        return exists(o);', 'exists'), false);
+  assert.equal(at('        flush();', 'flush'), false);
+  assert.equal(at('        String s = format(x);', 'format'), false);
+  assert.equal(at('        list.forEach(x -> handle(x));', 'handle'), false);
+  assert.equal(at('        throw error(x);', 'error'), false);
+  assert.equal(at('        val x = greet(a, 1)', 'greet'), false);
+  assert.equal(at('        new Foo(bar);', 'Foo'), false);
+  assert.equal(at('    private EntityRepository repository;', 'repository'), false); // not followed by (
+});

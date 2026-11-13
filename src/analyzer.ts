@@ -104,7 +104,14 @@ export interface AnalyzeOptions {
   onPartial?: (markers: Marker[]) => void;
   /** Called once the document's symbols are known, with all members whose usages can be counted. */
   onMembers?: (members: Member[]) => void;
+  /**
+   * Don't wait longer than this for a supertype from a library (class file / decompiled source: Red Hat's server
+   * can take 10 s for the first one). The analysis goes on without it; `lateLibraries` settles once it is loaded.
+   */
+  libraryTimeout?: number;
 }
+
+const LATE = Symbol('late');
 
 /**
  * Computes inheritance markers for one document, using only standard VS Code
@@ -122,6 +129,13 @@ export class Analyzer {
   private textCache = new Map<string, { version: number; text: string }>();
   private readonly limit: <T>(fn: () => Thenable<T> | Promise<T>) => Promise<T>;
   private uri!: vscode.Uri;
+  private readonly late: Promise<ResolvedType | undefined>[] = [];
+
+  /** Library supertypes skipped because of `libraryTimeout`; settles when all of them are loaded (then re-analyse). */
+  get lateLibraries(): Promise<boolean> | undefined {
+    // true only if one of them could be resolved – otherwise a re-analysis would just wait for it again
+    return this.late.length ? Promise.all(this.late).then(r => r.some(x => x)) : undefined;
+  }
 
   constructor(
     private readonly token: vscode.CancellationToken,
@@ -275,6 +289,20 @@ export class Analyzer {
     }
     if (!own.has(selfKey)) own.set(selfKey, { line: method.selectionRange.start.line, character: method.selectionRange.start.character, abstract: false });
 
+    // anonymous classes like IntelliJ: "Anonymous in createStyle() in FooTest"
+    const labels = new Map<string, string>();
+    for (const [k, t] of nodes) {
+      if (!/^new\s/.test(t.symbol.name)) continue;
+      const outer = enclosingChain(await this.symbols(t.uri), t.symbol.selectionRange.start).filter(s => s !== t.symbol && !s.range.isEqual(t.symbol.range));
+      const member = [...outer].reverse().find(s => !TYPE_KINDS.has(s.kind));
+      const owner = [...outer].reverse().find(s => TYPE_KINDS.has(s.kind));
+      const parts = ['Anonymous'];
+      if (member) parts.push(`in ${member.name.replace(/\(.+\)/, '(…)').replace(/\s*:.*$/, '')}`);
+      if (owner) parts.push(`in ${bareName(owner.name)}`);
+      else parts.push(`in ${basename(t.uri).replace(/\.\w+$/, '')}`);
+      labels.set(k, parts.join(' '));
+    }
+
     const build = (k: string, path: Set<string>): HierarchyNode => {
       const t = nodes.get(k)!;
       const nextPath = new Set(path).add(k);
@@ -283,7 +311,7 @@ export class Analyzer {
         .map(c => build(c, nextPath))
         .sort((a, b) => a.name.localeCompare(b.name));
       return {
-        name: t.name,
+        name: labels.get(k) ?? t.name,
         uri: t.uri.toString(),
         line: t.symbol.selectionRange.start.line,
         character: t.symbol.selectionRange.start.character,
@@ -535,8 +563,8 @@ export class Analyzer {
     const key = `S:${uri.toString()}#${bareName(type.name)}#${this.headerText(doc, type)}`;
     const hit = this.cache.get<ResolvedType[]>(key);
     if (hit) return hit;
-    const { result, complete } = await this.computeDirectSupertypes(uri, type, doc);
-    if (!this.token.isCancellationRequested) {
+    const { result, complete, skipped } = await this.computeDirectSupertypes(uri, type, doc);
+    if (!this.token.isCancellationRequested && !skipped) {
       const selfRef = result.some(r => r.uri.toString() === uri.toString());
       // The header text is part of the key; besides that only the supertypes' own files matter – if all of them
       // were resolved. An unresolved one could appear in any file later, so then any change invalidates the entry.
@@ -551,7 +579,44 @@ export class Analyzer {
     uri: vscode.Uri,
     type: vscode.DocumentSymbol,
     doc: vscode.TextDocument,
-  ): Promise<{ result: ResolvedType[]; complete: boolean }> {
+  ): Promise<{ result: ResolvedType[]; complete: boolean; skipped?: boolean }> {
+    let skipped = false;
+    const resolve = async (u: vscode.Uri, pos: vscode.Position, hint?: boolean): Promise<ResolvedType | undefined> => {
+      const p = this.resolveTypeAt(u, pos, hint);
+      const timeout = this.options.libraryTimeout;
+      if (u.scheme === 'file' || u.scheme === 'untitled' || !timeout) return p;
+      let timer: NodeJS.Timeout | undefined;
+      const r = await Promise.race([p, new Promise<typeof LATE>(res => (timer = setTimeout(() => res(LATE), timeout)))]);
+      clearTimeout(timer);
+      if (r !== LATE) return r;
+      skipped = true;
+      this.late.push(p.catch(() => undefined));
+      return undefined;
+    };
+    // 0) Java anonymous class (`new Foo() {…}`, symbol name "new Foo() {...}"): its supertype is Foo. The type
+    //    hierarchy request at its position would answer for Foo itself.
+    const anon = /^new\s+([\w$.]+)/.exec(type.name);
+    if (anon) {
+      const simple = anon[1].split('.').pop()!;
+      const text = this.text(doc);
+      const from = Math.max(0, doc.offsetAt(type.range.start) - 300);
+      const around = doc.offsetAt(type.selectionRange.start);
+      const re = new RegExp(`\\bnew\\s+(?:[\\w$]+\\.)*(${simple.replace(/\$/g, '\\$')})\\b`, 'g');
+      let best: number | undefined;
+      for (let m; (m = re.exec(text.slice(from, doc.offsetAt(type.range.end))));) {
+        const off = from + m.index + m[0].length - m[1].length;
+        if (best === undefined || Math.abs(off - around) < Math.abs(best - around)) best = off;
+      }
+      if (best !== undefined) {
+        const defs = await this.limit(() =>
+          vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>('vscode.executeDefinitionProvider', uri, doc.positionAt(best!)),
+        );
+        const first = defs?.[0];
+        const r = first ? await resolve(toLocation(first).uri, toLocation(first).range.start) : undefined;
+        return { result: r ? [r] : [], complete: !!r, skipped };
+      }
+    }
+
     // 1) LSP type hierarchy, if the server supports it
     try {
       const items = await this.limit(() =>
@@ -564,11 +629,11 @@ export class Analyzer {
           let complete = true;
           for (const s of supers) {
             if (s.name === 'Object' || s.name === 'java.lang.Object' || s.name === 'Any') continue;
-            const r = await this.resolveTypeAt(s.uri, s.selectionRange.start, s.kind === vscode.SymbolKind.Interface);
+            const r = await resolve(s.uri, s.selectionRange.start, s.kind === vscode.SymbolKind.Interface);
             if (r) resolved.push(r);
             else complete = false;
           }
-          return { result: resolved, complete };
+          return { result: resolved, complete, skipped };
         }
       }
     } catch {
@@ -589,11 +654,11 @@ export class Analyzer {
         vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>('vscode.executeDefinitionProvider', uri, pos),
       );
       const first = defs?.[0];
-      const r = first ? await this.resolveTypeAt(toLocation(first).uri, toLocation(first).range.start) : undefined;
+      const r = first ? await resolve(toLocation(first).uri, toLocation(first).range.start) : undefined;
       if (r) resolved.push(r);
       else complete = false;
     }
-    return { result: resolved, complete };
+    return { result: resolved, complete, skipped };
   }
 
   private async resolveTypeAt(uri: vscode.Uri, pos: vscode.Position, interfaceHint?: boolean): Promise<ResolvedType | undefined> {

@@ -57,7 +57,7 @@ exports.run = async () => {
   eq('FancyGreeter.kt', ['4:greet up=O[BaseGreeter,Greeter] down=-']);
   eq('KotlinGreeter.kt', ['4:greet up=I[Greeter] down=-']);
   // Usages ("7 usages"): fields (also private), methods, types; no hint for constructors and @Test methods
-  const svcExpected = ['3:1 usage', '4:4 usages', '5:no usages', '11:1 usage', '15:no usages'];
+  const svcExpected = ['3:no usages', '4:4 usages', '5:no usages', '11:1 usage', '15:no usages'];
   const svc = await hintsOf('EntityService.java', l => svcExpected.every(x => l.includes(x)));
   console.log('\n== usages EntityService.java\n' + svc.labels.join('\n'));
   assert.deepStrictEqual(svc.labels, svcExpected);
@@ -75,7 +75,7 @@ exports.run = async () => {
   const moved = (await vscode.commands.executeCommand('vscode.executeInlayHintProvider', svc.doc.uri, new vscode.Range(0, 0, svc.doc.lineCount, 0)))
     .map(h => `${h.position.line + 1}:${typeof h.label === 'string' ? h.label : h.label.map(p => p.value).join('')}`);
   console.log('== right after inserting 2 lines\n' + moved.join('\n'));
-  assert.deepStrictEqual(moved, ['5:1 usage', '6:4 usages', '7:no usages', '13:1 usage', '17:no usages']);
+  assert.deepStrictEqual(moved, ['5:no usages', '6:4 usages', '7:no usages', '13:1 usage', '17:no usages']);
   await vscode.commands.executeCommand('workbench.action.files.revert');
 
   // Go to Test / Test Subject

@@ -91,3 +91,23 @@ export function usageLabel(count: number): string {
   if (count === 0) return 'no usages';
   return count === 1 ? '1 usage' : `${count} usages`;
 }
+
+const NOT_A_TYPE = /(?:^|[^\w$])(return|new|throw|else|case|yield|await|assert|in|is|as|when|do|typeof|instanceof|not|and|or)$/;
+
+/**
+ * True if the identifier at [start, end) of `line` is the name of a method/function *declaration* rather than a call.
+ * Some language servers (e.g. Red Hat's Java server) report the declarations of implementing/overriding methods as
+ * references; IntelliJ doesn't count those as usages.
+ * Heuristic: followed by "(" (optionally generic args) and preceded by a type, a modifier or `fun`/`def`/`func`.
+ */
+export function isDeclarationSite(line: string, start: number, end: number): boolean {
+  if (!/^\s*(<[^()]*>)?\s*\(/.test(line.slice(end))) return false;
+  const before = line.slice(0, start).replace(/\/\*.*?\*\//g, '').trimEnd();
+  if (!before) return false; // statement starting with a call: foo(x);
+  if (/(?:^|\s)(fun|def|func|function)$/.test(before)) return true;
+  if (/(?:^|[\s(])fun\s+[\w.<>?, ]*\.$/.test(before)) return true; // Kotlin extension function: fun Foo.bar(
+  if (/(?:^|\s)func\s*\([^)]*\)$/.test(before)) return true; // Go method with receiver: func (o *Order) Total(
+  if (NOT_A_TYPE.test(before)) return false;
+  // a declaration has a (return) type or modifier directly before the name: "public boolean", "List<String>", "int[]", "T"
+  return /[\w$>\]?]$/.test(before) && !/(->|::|\.)$/.test(before);
+}
