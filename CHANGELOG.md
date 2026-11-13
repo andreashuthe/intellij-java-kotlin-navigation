@@ -8,6 +8,8 @@ and uses it as the GitHub release notes.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-13
+
 ### Fixed
 - **Usage counts with Red Hat's Language Support for Java**: declarations of overriding / implementing methods (and
   constructors) are no longer counted as usages – Red Hat's server reports them as references, IntelliJ doesn't.
